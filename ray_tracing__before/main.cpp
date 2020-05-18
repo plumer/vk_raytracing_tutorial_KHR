@@ -131,6 +131,7 @@ int main(int argc, char** argv)
 
   // Requesting Vulkan extensions and layers
   nvvk::ContextCreateInfo contextInfo;
+  contextInfo.setVersion(1, 2);
   contextInfo.addInstanceLayer("VK_LAYER_LUNARG_monitor", true);
   contextInfo.addInstanceExtension(VK_KHR_SURFACE_EXTENSION_NAME);
 #ifdef _WIN32
@@ -145,6 +146,14 @@ int main(int argc, char** argv)
   contextInfo.addDeviceExtension(VK_KHR_GET_MEMORY_REQUIREMENTS_2_EXTENSION_NAME);
   contextInfo.addDeviceExtension(VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME, false, &indexFeature);
   contextInfo.addDeviceExtension(VK_EXT_SCALAR_BLOCK_LAYOUT_EXTENSION_NAME, false, &scalarFeature);
+
+  // VKRay: Activates the ray tracing extension.
+  vk::PhysicalDeviceRayTracingFeaturesKHR raytracing_feature;
+  contextInfo.addDeviceExtension(VK_KHR_RAY_TRACING_EXTENSION_NAME, /* optional = */false, &raytracing_feature);
+  contextInfo.addDeviceExtension(VK_KHR_PIPELINE_LIBRARY_EXTENSION_NAME);
+  contextInfo.addDeviceExtension(VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME);
+  contextInfo.addDeviceExtension(VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME);
+
 
   // Creating Vulkan base application
   nvvk::Context vkctx{};
@@ -181,6 +190,12 @@ int main(int argc, char** argv)
   helloVk.createUniformBuffer();
   helloVk.createSceneDescriptionBuffer();
   helloVk.updateDescriptorSet();
+
+  // VKRay
+  helloVk.init_ray_tracing();
+  helloVk.create_bottom_level_AS();
+  helloVk.create_top_level_AS();
+  helloVk.create_rt_descriptor_set();
 
   helloVk.createPostDescriptor();
   helloVk.createPostPipeline();

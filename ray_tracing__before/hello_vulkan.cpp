@@ -95,18 +95,26 @@ void HelloVulkan::createDescriptorSetLayout()
   uint32_t nbObj = static_cast<uint32_t>(m_objModel.size());
 
   // Camera matrices (binding = 0)
-  m_descSetLayoutBind.addBinding(vkDS(0, vkDT::eUniformBuffer, 1, vkSS::eVertex));
+  m_descSetLayoutBind.addBinding(vkDS(0, vkDT::eUniformBuffer, 1, vkSS::eVertex | vkSS::eRaygenKHR));
   // Materials (binding = 1)
   m_descSetLayoutBind.addBinding(
-      vkDS(1, vkDT::eStorageBuffer, nbObj, vkSS::eVertex | vkSS::eFragment));
+      vkDS(1, vkDT::eStorageBuffer, nbObj, vkSS::eVertex | vkSS::eFragment | vkSS::eClosestHitKHR));
   // Scene description (binding = 2)
   m_descSetLayoutBind.addBinding(  //
-      vkDS(2, vkDT::eStorageBuffer, 1, vkSS::eVertex | vkSS::eFragment));
+      vkDS(2, vkDT::eStorageBuffer, 1, vkSS::eVertex | vkSS::eFragment | vkSS::eClosestHitKHR));
   // Textures (binding = 3)
-  m_descSetLayoutBind.addBinding(vkDS(3, vkDT::eCombinedImageSampler, nbTxt, vkSS::eFragment));
+  m_descSetLayoutBind.addBinding(
+      vkDS(3, vkDT::eCombinedImageSampler, nbTxt, vkSS::eFragment | vkSS::eClosestHitKHR));
 
   // Materials (binding = 4)
-  m_descSetLayoutBind.addBinding(vkDS(4, vkDT::eStorageBuffer, nbObj, vkSS::eFragment));
+  m_descSetLayoutBind.addBinding(
+      vkDS(4, vkDT::eStorageBuffer, nbObj, vkSS::eFragment | vkSS::eClosestHitKHR));
+
+  // Storing vertices (binding = 5)
+  m_descSetLayoutBind.addBinding(vkDS(5, vkDT::eStorageBuffer, nbObj, vkSS::eClosestHitKHR));
+
+  // Storing indices (binding = 6)
+  m_descSetLayoutBind.addBinding(vkDS(6, vkDT::eStorageBuffer, nbObj, vkSS::eClosestHitKHR));
 
 
   m_descSetLayout = m_descSetLayoutBind.createLayout(m_device);
@@ -130,13 +138,18 @@ void HelloVulkan::updateDescriptorSet()
   // All material buffers, 1 buffer per OBJ
   std::vector<vk::DescriptorBufferInfo> dbiMat;
   std::vector<vk::DescriptorBufferInfo> dbiMatIdx;
+  std::vector<vk::DescriptorBufferInfo> dbi_vertices, dbi_indices;
   for(size_t i = 0; i < m_objModel.size(); ++i)
   {
     dbiMat.push_back({m_objModel[i].matColorBuffer.buffer, 0, VK_WHOLE_SIZE});
     dbiMatIdx.push_back({m_objModel[i].matIndexBuffer.buffer, 0, VK_WHOLE_SIZE});
+    dbi_vertices.push_back({m_objModel[i].vertexBuffer.buffer, 0, VK_WHOLE_SIZE});
+    dbi_indices.push_back({m_objModel[i].indexBuffer.buffer, 0, VK_WHOLE_SIZE});
   }
   writes.emplace_back(m_descSetLayoutBind.makeWriteArray(m_descSet, 1, dbiMat.data()));
   writes.emplace_back(m_descSetLayoutBind.makeWriteArray(m_descSet, 4, dbiMatIdx.data()));
+  writes.emplace_back(m_descSetLayoutBind.makeWriteArray(m_descSet, 5, dbi_vertices.data()));
+  writes.emplace_back(m_descSetLayoutBind.makeWriteArray(m_descSet, 6, dbi_indices.data()));
 
   // All texture samplers
   std::vector<vk::DescriptorImageInfo> diit;
@@ -218,8 +231,9 @@ void HelloVulkan::loadModel(const std::string& filename, nvmath::mat4f transform
   // Create the buffers on Device and copy vertices, indices and materials
   nvvk::CommandPool cmdBufGet(m_device, m_graphicsQueueIndex);
   vk::CommandBuffer cmdBuf = cmdBufGet.createCommandBuffer();
-  model.vertexBuffer       = m_alloc.createBuffer(cmdBuf, loader.m_vertices, vkBU::eVertexBuffer);
-  model.indexBuffer        = m_alloc.createBuffer(cmdBuf, loader.m_indices, vkBU::eIndexBuffer);
+  // VKRay: adds buffer usages as storage buffers.
+  model.vertexBuffer       = m_alloc.createBuffer(cmdBuf, loader.m_vertices, vkBU::eVertexBuffer | vkBU::eStorageBuffer);
+  model.indexBuffer        = m_alloc.createBuffer(cmdBuf, loader.m_indices, vkBU::eIndexBuffer | vkBU::eStorageBuffer);
   model.matColorBuffer     = m_alloc.createBuffer(cmdBuf, loader.m_materials, vkBU::eStorageBuffer);
   model.matIndexBuffer     = m_alloc.createBuffer(cmdBuf, loader.m_matIndx, vkBU::eStorageBuffer);
   // Creates all textures found
@@ -348,6 +362,10 @@ void HelloVulkan::createTextureImages(const vk::CommandBuffer&        cmdBuf,
 //
 void HelloVulkan::destroyResources()
 {
+    // VKRay
+    m_rt_builder.destroy();
+    m_device.destroy(m_rt_descriptor_pool);
+    m_device.destroy(m_rt_descriptor_set_layout);
   m_device.destroy(m_graphicsPipeline);
   m_device.destroy(m_pipelineLayout);
   m_device.destroy(m_descPool);
@@ -420,6 +438,7 @@ void HelloVulkan::onResize(int /*w*/, int /*h*/)
 {
   createOffscreenRender();
   updatePostDescriptorSet();
+  update_rt_descriptor_set();
 }
 
 
@@ -579,4 +598,132 @@ void HelloVulkan::drawPost(vk::CommandBuffer cmdBuf)
   cmdBuf.draw(3, 1, 0, 0);
 
   m_debug.endLabel(cmdBuf);
+}
+
+void HelloVulkan::init_ray_tracing() {
+  auto properties = m_physicalDevice.getProperties2<vk::PhysicalDeviceProperties2,
+                                                    vk::PhysicalDeviceRayTracingPropertiesKHR>();
+  m_rt_properties = properties.get<vk::PhysicalDeviceRayTracingPropertiesKHR>();
+
+  std::cout << __FUNCTION__ << " | rt properties: \n"
+            << "\tmaximum recursion depth = " << m_rt_properties.maxRecursionDepth << '\n'
+            << "\tshader group handle size = " << m_rt_properties.shaderGroupHandleSize << '\n';
+
+  m_rt_builder.setup(m_device, &m_alloc, m_graphicsQueueIndex);
+}
+
+nvvk::RaytracingBuilderKHR::Blas HelloVulkan::object_to_vkGeometryKHR(const ObjModel& model)
+{
+    // Sets up the creation info of AS.
+    vk::AccelerationStructureCreateGeometryTypeInfoKHR as_create;
+    as_create.setGeometryType(vk::GeometryTypeKHR::eTriangles);
+    as_create.setIndexType(vk::IndexType::eUint32);
+    as_create.setVertexFormat(vk::Format::eR32G32B32Sfloat);
+    as_create.setMaxPrimitiveCount(model.nbIndices / 3);
+    as_create.setMaxVertexCount(model.nbVertices);
+    as_create.setAllowsTransforms(VK_FALSE);    // No adding transformation matrices.
+
+    // Building part.
+    vk::DeviceAddress vertex_address = m_device.getBufferAddress(
+        {model.indexBuffer.buffer}, vk::DispatchLoaderStatic());
+    vk::DeviceAddress index_address = m_device.getBufferAddress(
+        {model.indexBuffer.buffer}, vk::DispatchLoaderStatic());
+
+    auto triangles = vk::AccelerationStructureGeometryTrianglesDataKHR()
+                         .setVertexFormat(as_create.vertexFormat)
+                         .setVertexData(vertex_address)
+                         .setVertexStride(sizeof(VertexObj))
+                         .setIndexType(as_create.indexType)
+                         .setIndexData(index_address)
+                         .setTransformData({});
+
+    // Sets up the build info of the acceleration structure.
+    auto as_geometry = vk::AccelerationStructureGeometryKHR()
+                           .setGeometryType(as_create.geometryType)
+                           .setFlags(vk::GeometryFlagBitsKHR::eOpaque);
+    as_geometry.geometry.setTriangles(triangles);
+
+    // Sets the primitive.
+    auto offset = vk::AccelerationStructureBuildOffsetInfoKHR()
+                      .setFirstVertex(0)
+                      .setPrimitiveCount(as_create.maxPrimitiveCount)
+                      .setPrimitiveOffset(0)
+                      .setTransformOffset(0);
+
+
+    nvvk::RaytracingBuilderKHR::Blas blas;
+    blas.asGeometry.emplace_back(as_geometry);
+    blas.asCreateGeometryInfo.emplace_back(as_create);
+    blas.asBuildOffsetInfo.emplace_back(offset);
+
+    return blas;
+}
+
+void HelloVulkan::create_bottom_level_AS() {
+    // BLAS: storing each primitive in a geometry.
+    std::vector<nvvk::RaytracingBuilderKHR::Blas> all_blas;
+    all_blas.reserve(m_objModel.size());
+    for (const auto& obj : m_objModel) {
+      auto blas = object_to_vkGeometryKHR(obj);
+      all_blas.emplace_back(blas);
+    }
+    m_rt_builder.buildBlas(all_blas, vk::BuildAccelerationStructureFlagBitsKHR::ePreferFastTrace);
+}
+
+void HelloVulkan::create_top_level_AS() {
+  std::vector<nvvk::RaytracingBuilderKHR::Instance> tlas_instances;
+  tlas_instances.reserve(m_objInstance.size());
+  
+  for (int i = 0; i < static_cast<int>(m_objInstance.size()); ++i) {
+      nvvk::RaytracingBuilderKHR::Instance ray_instance;
+      ray_instance.transform = m_objInstance[i].transform;
+      ray_instance.instanceId = i;
+      ray_instance.blasId = m_objInstance[i].objIndex;
+      ray_instance.hitGroupId = 0; // Uses the same hit group for all objects.
+      ray_instance.flags = VK_GEOMETRY_INSTANCE_TRIANGLE_FACING_CULL_DISABLE_BIT_KHR;
+      tlas_instances.emplace_back(ray_instance);
+  }
+  m_rt_builder.buildTlas(tlas_instances, vk::BuildAccelerationStructureFlagBitsKHR::ePreferFastTrace);
+}
+
+void HelloVulkan::create_rt_descriptor_set() {
+    using vkDSType = vk::DescriptorType;
+    using StageBits = vk::ShaderStageFlagBits;
+    using DescBinding = vk::DescriptorSetLayoutBinding;
+
+    // Binding #0: TLAS
+    m_rt_descriptor_set_layout_bind.addBinding(
+        DescBinding(0, vkDSType::eAccelerationStructureKHR, 1,
+                    StageBits::eRaygenKHR | StageBits::eClosestHitKHR));
+    // Binding #1: Output image.
+    m_rt_descriptor_set_layout_bind.addBinding(
+        DescBinding(1, vkDSType::eStorageImage, 1, StageBits::eRaygenKHR));
+
+    m_rt_descriptor_pool = m_rt_descriptor_set_layout_bind.createPool(m_device);
+    m_rt_descriptor_set_layout = m_rt_descriptor_set_layout_bind.createLayout(m_device);
+    m_rt_descriptor_set =
+        m_device.allocateDescriptorSets({m_rt_descriptor_pool, 1, &m_rt_descriptor_set_layout})[0];
+
+    vk::AccelerationStructureKHR tlas = m_rt_builder.getAccelerationStructure();
+    vk::WriteDescriptorSetAccelerationStructureKHR descriptor_AS_info;
+    descriptor_AS_info.setAccelerationStructureCount(1).setPAccelerationStructures(&tlas);
+
+    vk::DescriptorImageInfo image_info{
+      {}, m_offscreenColor.descriptor.imageView, vk::ImageLayout::eGeneral
+    };
+
+    std::vector<vk::WriteDescriptorSet> writes;
+    writes.emplace_back(m_rt_descriptor_set_layout_bind.makeWrite(m_rt_descriptor_set, 0, &descriptor_AS_info));
+    writes.emplace_back(m_rt_descriptor_set_layout_bind.makeWrite(m_rt_descriptor_set, 1, &image_info));
+    m_device.updateDescriptorSets(static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
+}
+
+void HelloVulkan::update_rt_descriptor_set() {
+    // Updates the image reference.
+    using vkDSType = vk::DescriptorType;
+    // Binding #1: output buffer
+    auto image_info = vk::DescriptorImageInfo().setImageView(m_offscreenColor.descriptor.imageView)
+                          .setImageLayout(vk::ImageLayout::eGeneral);
+    auto write_DS = vk::WriteDescriptorSet(m_rt_descriptor_set, 1, 0, 1, vkDSType::eStorageImage, &image_info);
+    m_device.updateDescriptorSets(write_DS, nullptr);
 }

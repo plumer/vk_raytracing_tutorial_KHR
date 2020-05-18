@@ -27,6 +27,7 @@
 #pragma once
 
 #define NVVK_ALLOC_DEDICATED
+#include "nvvk/raytraceKHR_vk.hpp"
 #include "nvvk/allocator_vk.hpp"
 #include "nvvk/appbase_vkpp.hpp"
 #include "nvvk/debug_util_vk.hpp"
@@ -125,8 +126,39 @@ public:
   vk::PipelineLayout          m_postPipelineLayout;
   vk::RenderPass              m_offscreenRenderPass;
   vk::Framebuffer             m_offscreenFramebuffer;
-  nvvk::Texture                 m_offscreenColor;
+  nvvk::Texture               m_offscreenColor;
   vk::Format                  m_offscreenColorFormat{vk::Format::eR32G32B32A32Sfloat};
-  nvvk::Texture                 m_offscreenDepth;
+  nvvk::Texture               m_offscreenDepth;
   vk::Format                  m_offscreenDepthFormat{vk::Format::eD32Sfloat};
+
+  // VKRay
+  void init_ray_tracing();
+  vk::PhysicalDeviceRayTracingPropertiesKHR m_rt_properties;
+  nvvk::RaytracingBuilderKHR                m_rt_builder;
+
+  // Converts an OBJ primitive to the ray tracing geometry used for the BLAS.
+  nvvk::RaytracingBuilderKHR::Blas object_to_vkGeometryKHR(const ObjModel &model);
+
+  // Generates a BLAS for each object.
+  void create_bottom_level_AS();
+
+  // TLAS is the entry point in the ray-tracing scene description, storing all
+  // the instances.
+  // 
+  // An instance is a nvvk::RaytracingBuilder::Instance, storing its transform
+  // matrix and the identifier of its corresponding BLAS. It also contains an 
+  // instance identifier that will be available during shading 
+  // (gl_InstanceCustomIndex), as well as the index of the hit group 
+  // representing the shaders that will be invoked upon hitting the object.
+  void create_top_level_AS();
+
+  void create_rt_descriptor_set();
+  nvvk::DescriptorSetBindings   m_rt_descriptor_set_layout_bind;
+  vk::DescriptorPool            m_rt_descriptor_pool;
+  vk::DescriptorSetLayout       m_rt_descriptor_set_layout;
+  vk::DescriptorSet             m_rt_descriptor_set;
+
+  // Updates the descriptors. This typically happens when resizing the window,
+  // as the output image is recreated and needs to be re-linked to the DS.
+  void update_rt_descriptor_set();
 };
