@@ -59,6 +59,8 @@ struct CameraMatrices
   nvmath::mat4f view;
   nvmath::mat4f proj;
   nvmath::mat4f viewInverse;
+  // VkRay
+  nvmath::mat4f proj_inverse;
 };
 
 //--------------------------------------------------------------------------------------------------
@@ -87,6 +89,7 @@ void HelloVulkan::updateUniformBuffer()
   ubo.proj           = nvmath::perspectiveVK(CameraManip.getFov(), aspectRatio, 0.1f, 1000.0f);
   //ubo.proj[1][1] *= -1;  // Inverting Y for Vulkan
   ubo.viewInverse = nvmath::invert(ubo.view);
+  ubo.proj_inverse = nvmath::invert(ubo.proj);
   void* data      = m_device.mapMemory(m_cameraMat.allocation, 0, sizeof(ubo));
   memcpy(data, &ubo, sizeof(ubo));
   m_device.unmapMemory(m_cameraMat.allocation);
@@ -241,8 +244,12 @@ void HelloVulkan::loadModel(const std::string& filename, nvmath::mat4f transform
   nvvk::CommandPool cmdBufGet(m_device, m_graphicsQueueIndex);
   vk::CommandBuffer cmdBuf = cmdBufGet.createCommandBuffer();
   // VKRay: adds buffer usages as storage buffers.
-  model.vertexBuffer       = m_alloc.createBuffer(cmdBuf, loader.m_vertices, vkBU::eVertexBuffer | vkBU::eStorageBuffer);
-  model.indexBuffer        = m_alloc.createBuffer(cmdBuf, loader.m_indices, vkBU::eIndexBuffer | vkBU::eStorageBuffer);
+  model.vertexBuffer = m_alloc.createBuffer(cmdBuf, loader.m_vertices,
+                                            vkBU::eVertexBuffer | vkBU::eStorageBuffer
+                                                | vkBU::eShaderDeviceAddressKHR);
+  model.indexBuffer        = m_alloc.createBuffer(cmdBuf, loader.m_indices,
+                                           vkBU::eIndexBuffer | vkBU::eStorageBuffer
+                                               | vkBU::eShaderDeviceAddressKHR);
   model.matColorBuffer     = m_alloc.createBuffer(cmdBuf, loader.m_materials, vkBU::eStorageBuffer);
   model.matIndexBuffer     = m_alloc.createBuffer(cmdBuf, loader.m_matIndx, vkBU::eStorageBuffer);
   // Creates all textures found
@@ -637,7 +644,7 @@ nvvk::RaytracingBuilderKHR::Blas HelloVulkan::object_to_vkGeometryKHR(const ObjM
 
     // Building part.
     vk::DeviceAddress vertex_address = m_device.getBufferAddress(
-        {model.indexBuffer.buffer}, vk::DispatchLoaderStatic());
+        {model.vertexBuffer.buffer}, vk::DispatchLoaderStatic());
     vk::DeviceAddress index_address = m_device.getBufferAddress(
         {model.indexBuffer.buffer}, vk::DispatchLoaderStatic());
 
