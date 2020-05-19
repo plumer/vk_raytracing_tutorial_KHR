@@ -169,7 +169,22 @@ public:
   struct RtPushConstant {
       nvmath::vec4f clear_color;
       nvmath::vec3f light_position;
-      float light_intensity;
-      int light_type;
+      float         light_intensity = 0.0f;
+      int           light_type      = 0;
   } m_rt_push_constants;
+
+  // Shader binding table: blueprint of the RT process.
+  // Indicates which raygen shader to start with, which miss shader to execute
+  // if no intersections are found, and which hit-shader groups can be executed
+  // for each instance.
+  // Association between instances and shader groups is created when setting up
+  // the geometry, e.g., hitGroupId in TLAS for each instance.
+
+  // Gets all shader handles and writes them to a SBT buffer.
+  void create_rt_shader_binding_table();
+  nvvk::Buffer m_rt_SBT_buffer;
+
+  // Executes the ray tracer.
+  void ray_trace(const vk::CommandBuffer &cmd_buffer,
+                 const nvmath::vec4f &clear_color);
 };

@@ -100,6 +100,7 @@ int main(int argc, char** argv)
   glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
   GLFWwindow* window = glfwCreateWindow(SAMPLE_WIDTH, SAMPLE_HEIGHT,
                                         "NVIDIA Vulkan Raytracing Tutorial", nullptr, nullptr);
+  glfwSwapInterval(1);
 
 
   // Setup camera
@@ -197,6 +198,8 @@ int main(int argc, char** argv)
   helloVk.create_top_level_AS();
   helloVk.create_rt_descriptor_set();
   helloVk.create_rt_pipeline();
+  helloVk.create_rt_shader_binding_table();
+  bool use_ray_tracer = false;
 
   helloVk.createPostDescriptor();
   helloVk.createPostPipeline();
@@ -210,6 +213,7 @@ int main(int argc, char** argv)
   // Main loop
   while(!glfwWindowShouldClose(window))
   {
+    double frame_start_time_sec = glfwGetTime();
     glfwPollEvents();
     if(helloVk.isMinimized())
       continue;
@@ -225,6 +229,7 @@ int main(int argc, char** argv)
     if(1 == 1)
     {
       ImGui::ColorEdit3("Clear color", reinterpret_cast<float*>(&clearColor));
+      ImGui::Checkbox("Ray Tracer mode", &use_ray_tracer);
       renderUI(helloVk);
       ImGui::Text("Application average %.3f ms/frame (%.1f FPS)",
                   1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
@@ -256,9 +261,13 @@ int main(int argc, char** argv)
       offscreenRenderPassBeginInfo.setRenderArea({{}, helloVk.getSize()});
 
       // Rendering Scene
-      cmdBuff.beginRenderPass(offscreenRenderPassBeginInfo, vk::SubpassContents::eInline);
-      helloVk.rasterize(cmdBuff);
-      cmdBuff.endRenderPass();
+      if (use_ray_tracer) {
+          helloVk.ray_trace(cmdBuff, clearColor);
+      } else {
+        cmdBuff.beginRenderPass(offscreenRenderPassBeginInfo, vk::SubpassContents::eInline);
+        helloVk.rasterize(cmdBuff);
+        cmdBuff.endRenderPass();
+      }
     }
 
 
@@ -282,6 +291,14 @@ int main(int argc, char** argv)
     // Submit for display
     cmdBuff.end();
     helloVk.submitFrame();
+
+    // Waits until 16ms is over.
+    double time_elapsed_sec = glfwGetTime() - frame_start_time_sec;
+    double remaining_time_millisec = 16.6667 - time_elapsed_sec * 1000;
+    if(remaining_time_millisec > 0)
+    {
+      Sleep(static_cast<DWORD>(remaining_time_millisec));
+    }
   }
 
   // Cleanup

@@ -44,6 +44,14 @@ extern std::vector<std::string> defaultSearchPaths;
 #include "nvvk/renderpasses_vk.hpp"
 #include "nvvk/shaders_vk.hpp"
 
+namespace {
+template <typename T>
+uint32_t cast_u32(T v) {
+  static_assert(std::is_arithmetic_v<T>, "Can't cast a non-arithmetic to u32");
+  return static_cast<uint32_t>(v);
+}
+}
+
 
 // Holding the camera matrices
 struct CameraMatrices
@@ -365,6 +373,7 @@ void HelloVulkan::destroyResources()
 {
     // VKRay
     m_rt_builder.destroy();
+    m_alloc.destroy(m_rt_SBT_buffer);
     m_device.destroy(m_rt_pipeline);
     m_device.destroy(m_rt_pipeline_layout);
     m_device.destroy(m_rt_descriptor_pool);
@@ -806,3 +815,72 @@ void HelloVulkan::create_rt_pipeline()
   m_device.destroyShaderModule(miss_SM);
   m_device.destroyShaderModule(closest_hit_SM);
 }
+
+void HelloVulkan::create_rt_shader_binding_table() {
+  auto group_count = cast_u32(m_rt_shader_groups.size());
+  // Size of a program identifier.
+  uint32_t group_handle_size = m_rt_properties.shaderGroupHandleSize;
+
+  // Fetches all shader handles used in the pipeline, so that they can be written in the SBT.
+  uint32_t SBT_size = group_count * group_handle_size;
+  std::vector<uint8_t> shader_handle_storage(SBT_size);
+  m_device.getRayTracingShaderGroupHandlesKHR(m_rt_pipeline, 0, group_count, SBT_size,
+                                              shader_handle_storage.data());
+
+  // Writes the handles to SBT.
+  nvvk::CommandPool gen_cmd_buffer(m_device, m_graphicsQueueIndex);
+  vk::CommandBuffer cmd_buffer = gen_cmd_buffer.createCommandBuffer();
+
+  m_rt_SBT_buffer = m_alloc.createBuffer(cmd_buffer, shader_handle_storage,
+                                         vk::BufferUsageFlagBits::eRayTracingKHR);
+  m_debug.setObjectName(m_rt_SBT_buffer.buffer, "SBT");
+
+  gen_cmd_buffer.submitAndWait(cmd_buffer);
+  m_alloc.finalizeAndReleaseStaging();
+}
+
+void HelloVulkan::ray_trace(const vk::CommandBuffer& cmd_buffer, const nvmath::vec4f& clear_color)
+{
+    using vkSSType = vk::ShaderStageFlagBits;
+  m_debug.beginLabel(cmd_buffer, "Ray trace");
+  // Initializes push constant values.
+  m_rt_push_constants.clear_color     = clear_color;
+  m_rt_push_constants.light_position  = m_pushConstant.lightPosition;
+  m_rt_push_constants.light_intensity = m_pushConstant.lightIntensity;
+  m_rt_push_constants.light_type      = m_pushConstant.lightType;
+
+  cmd_buffer.bindPipeline(vk::PipelineBindPoint::eRayTracingKHR, m_rt_pipeline);
+  cmd_buffer.bindDescriptorSets(vk::PipelineBindPoint::eRayTracingKHR, m_rt_pipeline_layout, 0,
+                                {m_rt_descriptor_set, m_descSet}, /*dynamic_offset = */{});
+  cmd_buffer.pushConstants<RtPushConstant>(
+      m_rt_pipeline_layout, vkSSType::eRaygenKHR | vkSSType::eClosestHitKHR | vkSSType::eMissKHR, 0,
+      m_rt_push_constants);
+
+  // Tells the RT pipeline how to interpret SBT.
+  // -------------------------------------------
+
+  // Size of a program identifer.
+  vk::DeviceSize program_size     = m_rt_properties.shaderGroupHandleSize;
+  vk::DeviceSize raygen_offset    = 0u * program_size;  // Start at the beginning of sbt buffer.
+  vk::DeviceSize raygen_stride    = program_size;
+  vk::DeviceSize miss_offset      = 1u * program_size;  // Jump over raygen.
+  vk::DeviceSize miss_stride      = program_size;
+  vk::DeviceSize hit_group_offset = 2u * program_size; // Jump over the previous headers.
+  vk::DeviceSize hit_group_stride = program_size;
+
+  vk::DeviceSize SBT_size = program_size * (vk::DeviceSize)m_rt_shader_groups.size();
+
+  auto raygen_SBT =
+      vk::StridedBufferRegionKHR(m_rt_SBT_buffer.buffer, raygen_offset, raygen_stride, SBT_size);
+  auto miss_SBT = raygen_SBT;
+  miss_SBT.setOffset(miss_offset);
+  auto hit_SBT = raygen_SBT;
+  hit_SBT.setOffset(hit_group_offset);
+  auto callable_SBT = vk::StridedBufferRegionKHR();
+
+  cmd_buffer.traceRaysKHR(raygen_SBT, miss_SBT, hit_SBT, callable_SBT, m_size.width, m_size.height,
+                          /* depth = */1);
+
+  m_debug.endLabel(cmd_buffer);
+}
+
