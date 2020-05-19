@@ -161,4 +161,15 @@ public:
   // Updates the descriptors. This typically happens when resizing the window,
   // as the output image is recreated and needs to be re-linked to the DS.
   void update_rt_descriptor_set();
+
+  void create_rt_pipeline();
+  std::vector<vk::RayTracingShaderGroupCreateInfoKHR> m_rt_shader_groups;
+  vk::PipelineLayout m_rt_pipeline_layout;
+  vk::Pipeline m_rt_pipeline;
+  struct RtPushConstant {
+      nvmath::vec4f clear_color;
+      nvmath::vec3f light_position;
+      float light_intensity;
+      int light_type;
+  } m_rt_push_constants;
 };

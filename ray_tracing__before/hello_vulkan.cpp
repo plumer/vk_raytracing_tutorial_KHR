@@ -42,6 +42,7 @@ extern std::vector<std::string> defaultSearchPaths;
 #include "nvh/fileoperations.hpp"
 #include "nvvk/commands_vk.hpp"
 #include "nvvk/renderpasses_vk.hpp"
+#include "nvvk/shaders_vk.hpp"
 
 
 // Holding the camera matrices
@@ -364,6 +365,8 @@ void HelloVulkan::destroyResources()
 {
     // VKRay
     m_rt_builder.destroy();
+    m_device.destroy(m_rt_pipeline);
+    m_device.destroy(m_rt_pipeline_layout);
     m_device.destroy(m_rt_descriptor_pool);
     m_device.destroy(m_rt_descriptor_set_layout);
   m_device.destroy(m_graphicsPipeline);
@@ -726,4 +729,80 @@ void HelloVulkan::update_rt_descriptor_set() {
                           .setImageLayout(vk::ImageLayout::eGeneral);
     auto write_DS = vk::WriteDescriptorSet(m_rt_descriptor_set, 1, 0, 1, vkDSType::eStorageImage, &image_info);
     m_device.updateDescriptorSets(write_DS, nullptr);
+}
+
+void HelloVulkan::create_rt_pipeline()
+{
+  std::vector<std::string> paths = defaultSearchPaths;
+  vk::ShaderModule         raygen_SM =
+      nvvk::createShaderModule(m_device, nvh::loadFile("shaders/raytrace.rgen.spv", true, paths));
+  vk::ShaderModule miss_SM =
+      nvvk::createShaderModule(m_device, nvh::loadFile("shaders/raytrace.rmiss.spv", true, paths));
+  vk::ShaderModule closest_hit_SM =
+      nvvk::createShaderModule(m_device, nvh::loadFile("shaders/raytrace.rchit.spv", true, paths));
+
+  std::vector<vk::PipelineShaderStageCreateInfo> stages_ci;
+  stages_ci.emplace_back(vk::PipelineShaderStageCreateInfo({}, vk::ShaderStageFlagBits::eRaygenKHR,
+                                                           raygen_SM, "main"));
+  auto raygen_group_ci = vk::RayTracingShaderGroupCreateInfoKHR()
+                             .setType(vk::RayTracingShaderGroupTypeKHR::eGeneral)
+                             .setAnyHitShader(VK_SHADER_UNUSED_KHR)
+                             .setClosestHitShader(VK_SHADER_UNUSED_KHR)
+                             .setGeneralShader(VK_SHADER_UNUSED_KHR)
+                             .setIntersectionShader(VK_SHADER_UNUSED_KHR)
+                             .setGeneralShader(static_cast<uint32_t>(stages_ci.size() - 1));
+  stages_ci.emplace_back(
+      vk::PipelineShaderStageCreateInfo({}, vk::ShaderStageFlagBits::eMissKHR, miss_SM, "main"));
+  auto miss_group_ci = vk::RayTracingShaderGroupCreateInfoKHR()
+                           .setType(vk::RayTracingShaderGroupTypeKHR::eGeneral)
+                           .setAnyHitShader(VK_SHADER_UNUSED_KHR)
+                           .setClosestHitShader(VK_SHADER_UNUSED_KHR)
+                           .setGeneralShader(VK_SHADER_UNUSED_KHR)
+                           .setIntersectionShader(VK_SHADER_UNUSED_KHR)
+                           .setGeneralShader(static_cast<uint32_t>(stages_ci.size() - 1));
+
+  stages_ci.emplace_back(vk::PipelineShaderStageCreateInfo(
+      {}, vk::ShaderStageFlagBits::eClosestHitKHR, closest_hit_SM, "main"));
+
+  auto closest_hit_group_ci = vk::RayTracingShaderGroupCreateInfoKHR()
+                                  .setType(vk::RayTracingShaderGroupTypeKHR::eTrianglesHitGroup)
+                                  .setAnyHitShader(VK_SHADER_UNUSED_KHR)
+                                  .setClosestHitShader(VK_SHADER_UNUSED_KHR)
+                                  .setGeneralShader(VK_SHADER_UNUSED_KHR)
+                                  .setIntersectionShader(VK_SHADER_UNUSED_KHR)
+                                  .setGeneralShader(static_cast<uint32_t>(stages_ci.size() - 1));
+
+  m_rt_shader_groups.push_back(raygen_group_ci);
+  m_rt_shader_groups.push_back(miss_group_ci);
+  m_rt_shader_groups.push_back(closest_hit_group_ci);
+
+  // Sets up the pipeline layout which describes how the pipeline accesses external data.
+  vk::PipelineLayoutCreateInfo pipeline_layout_ci;
+  vk::PushConstantRange        push_constant(vk::ShaderStageFlagBits::eRaygenKHR
+                                          | vk::ShaderStageFlagBits::eClosestHitKHR
+                                          | vk::ShaderStageFlagBits::eMissKHR,
+                                      0, sizeof(RtPushConstant));
+  pipeline_layout_ci.setPushConstantRangeCount(1).setPPushConstantRanges(&push_constant);
+  std::vector<vk::DescriptorSetLayout> rt_DS_layouts = {m_rt_descriptor_set_layout, m_descSetLayout};
+  pipeline_layout_ci.setSetLayoutCount(2).setPSetLayouts(rt_DS_layouts.data());
+  m_rt_pipeline_layout = m_device.createPipelineLayout(pipeline_layout_ci);
+
+  // Creates the RT pipeline. Different from raster pipeline, RT pipeline can contain an arbitrary
+  // number of stages depending on the number of active shaders in the scene.
+  vk::RayTracingPipelineCreateInfoKHR rt_pipeline_ci;
+  rt_pipeline_ci.setStageCount(static_cast<uint32_t>(stages_ci.size()))
+      .setPStages(stages_ci.data())
+      // Specifies how the shaders can be assembled into groups. RG or miss shader is a group by 
+      // itself, but hit groups consists of up to 3 shaders (intersection, any-hit, closest-hit).
+      // TODO: see documentation of VkRayTracingShaderGroupCreateInfo.
+      // 1-raygen, n-miss, n-(hit[+anyhit+intersect]).
+      .setGroupCount(static_cast<uint32_t>(m_rt_shader_groups.size()))
+      .setPGroups(m_rt_shader_groups.data())
+      .setMaxRecursionDepth(1).setLayout(m_rt_pipeline_layout);
+  m_rt_pipeline = m_device.createRayTracingPipelineKHR(/*cache = */{}, rt_pipeline_ci).value;
+
+  // ONce the pipeline has been created, we can discard the shader modules.
+  m_device.destroyShaderModule(raygen_SM);
+  m_device.destroyShaderModule(miss_SM);
+  m_device.destroyShaderModule(closest_hit_SM);
 }
