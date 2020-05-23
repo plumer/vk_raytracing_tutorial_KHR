@@ -45,6 +45,7 @@ extern std::vector<std::string> defaultSearchPaths;
 #include "nvvk/shaders_vk.hpp"
 
 namespace {
+// Shorthand for `static_cast<uint32_t>`.
 template <typename T>
 uint32_t cast_u32(T v) {
   static_assert(std::is_arithmetic_v<T>, "Can't cast a non-arithmetic to u32");
@@ -108,24 +109,24 @@ void HelloVulkan::createDescriptorSetLayout()
 
   // Camera matrices (binding = 0)
   m_descSetLayoutBind.addBinding(vkDS(0, vkDT::eUniformBuffer, 1, vkSS::eVertex | vkSS::eRaygenKHR));
-  // Materials (binding = 1)
+  // Materials (binding = 1),           array size = #Objects
   m_descSetLayoutBind.addBinding(
       vkDS(1, vkDT::eStorageBuffer, nbObj, vkSS::eVertex | vkSS::eFragment | vkSS::eClosestHitKHR));
   // Scene description (binding = 2)
   m_descSetLayoutBind.addBinding(  //
       vkDS(2, vkDT::eStorageBuffer, 1, vkSS::eVertex | vkSS::eFragment | vkSS::eClosestHitKHR));
-  // Textures (binding = 3)
+  // Textures (binding = 3),            array size = #Textures
   m_descSetLayoutBind.addBinding(
       vkDS(3, vkDT::eCombinedImageSampler, nbTxt, vkSS::eFragment | vkSS::eClosestHitKHR));
 
-  // Materials (binding = 4)
+  // Materials (binding = 4),           array size = #Objects
   m_descSetLayoutBind.addBinding(
       vkDS(4, vkDT::eStorageBuffer, nbObj, vkSS::eFragment | vkSS::eClosestHitKHR));
 
-  // Storing vertices (binding = 5)
+  // Storing vertices (binding = 5),    array size = #Objects
   m_descSetLayoutBind.addBinding(vkDS(5, vkDT::eStorageBuffer, nbObj, vkSS::eClosestHitKHR));
 
-  // Storing indices (binding = 6)
+  // Storing indices (binding = 6),     array size = #Objects
   m_descSetLayoutBind.addBinding(vkDS(6, vkDT::eStorageBuffer, nbObj, vkSS::eClosestHitKHR));
 
 
@@ -710,7 +711,7 @@ void HelloVulkan::create_rt_descriptor_set() {
     using StageBits = vk::ShaderStageFlagBits;
     using DescBinding = vk::DescriptorSetLayoutBinding;
 
-    // Binding #0: TLAS
+    // Binding #0: TLAS, used in ray-gen shader and closest-hit shader (to cast shadow rays).
     m_rt_descriptor_set_layout_bind.addBinding(
         DescBinding(0, vkDSType::eAccelerationStructureKHR, 1,
                     StageBits::eRaygenKHR | StageBits::eClosestHitKHR));
@@ -756,40 +757,49 @@ void HelloVulkan::create_rt_pipeline()
       nvvk::createShaderModule(m_device, nvh::loadFile("shaders/raytrace.rmiss.spv", true, paths));
   vk::ShaderModule closest_hit_SM =
       nvvk::createShaderModule(m_device, nvh::loadFile("shaders/raytrace.rchit.spv", true, paths));
+  vk::ShaderModule shadow_miss_SM =
+      nvvk::createShaderModule(m_device,
+                               nvh::loadFile("shaders/raytraceShadow.rmiss.spv", true, paths));
 
   std::vector<vk::PipelineShaderStageCreateInfo> stages_ci;
+  // Ray-generation stage, shader binding table #0.
   stages_ci.emplace_back(vk::PipelineShaderStageCreateInfo({}, vk::ShaderStageFlagBits::eRaygenKHR,
                                                            raygen_SM, "main"));
   auto raygen_group_ci = vk::RayTracingShaderGroupCreateInfoKHR()
                              .setType(vk::RayTracingShaderGroupTypeKHR::eGeneral)
                              .setAnyHitShader(VK_SHADER_UNUSED_KHR)
                              .setClosestHitShader(VK_SHADER_UNUSED_KHR)
-                             .setGeneralShader(VK_SHADER_UNUSED_KHR)
                              .setIntersectionShader(VK_SHADER_UNUSED_KHR)
                              .setGeneralShader(static_cast<uint32_t>(stages_ci.size() - 1));
+  m_rt_shader_groups.push_back(raygen_group_ci);
+
+  // Miss stage, shader binding table #1.
   stages_ci.emplace_back(
       vk::PipelineShaderStageCreateInfo({}, vk::ShaderStageFlagBits::eMissKHR, miss_SM, "main"));
   auto miss_group_ci = vk::RayTracingShaderGroupCreateInfoKHR()
                            .setType(vk::RayTracingShaderGroupTypeKHR::eGeneral)
                            .setAnyHitShader(VK_SHADER_UNUSED_KHR)
                            .setClosestHitShader(VK_SHADER_UNUSED_KHR)
-                           .setGeneralShader(VK_SHADER_UNUSED_KHR)
                            .setIntersectionShader(VK_SHADER_UNUSED_KHR)
                            .setGeneralShader(static_cast<uint32_t>(stages_ci.size() - 1));
+  m_rt_shader_groups.push_back(miss_group_ci);
 
+  // Shadow miss stage, shader binding table #2.
+  stages_ci.emplace_back(vk::PipelineShaderStageCreateInfo({}, vk::ShaderStageFlagBits::eMissKHR,
+                                                           shadow_miss_SM, "main"));
+  // Re-uses the miss group creat info, but with different index to shader.
+  miss_group_ci.setGeneralShader(cast_u32(stages_ci.size() - 1));
+  m_rt_shader_groups.push_back(miss_group_ci);
+
+  // Closest-hit stage, shader binding table #3.  
   stages_ci.emplace_back(vk::PipelineShaderStageCreateInfo(
       {}, vk::ShaderStageFlagBits::eClosestHitKHR, closest_hit_SM, "main"));
-
   auto closest_hit_group_ci = vk::RayTracingShaderGroupCreateInfoKHR()
                                   .setType(vk::RayTracingShaderGroupTypeKHR::eTrianglesHitGroup)
                                   .setAnyHitShader(VK_SHADER_UNUSED_KHR)
                                   .setClosestHitShader(VK_SHADER_UNUSED_KHR)
-                                  .setGeneralShader(VK_SHADER_UNUSED_KHR)
                                   .setIntersectionShader(VK_SHADER_UNUSED_KHR)
                                   .setGeneralShader(static_cast<uint32_t>(stages_ci.size() - 1));
-
-  m_rt_shader_groups.push_back(raygen_group_ci);
-  m_rt_shader_groups.push_back(miss_group_ci);
   m_rt_shader_groups.push_back(closest_hit_group_ci);
 
   // Sets up the pipeline layout which describes how the pipeline accesses external data.
@@ -814,12 +824,14 @@ void HelloVulkan::create_rt_pipeline()
       // 1-raygen, n-miss, n-(hit[+anyhit+intersect]).
       .setGroupCount(static_cast<uint32_t>(m_rt_shader_groups.size()))
       .setPGroups(m_rt_shader_groups.data())
-      .setMaxRecursionDepth(1).setLayout(m_rt_pipeline_layout);
+      // Allows shooting rays from the closest hit program.
+      .setMaxRecursionDepth(2).setLayout(m_rt_pipeline_layout);
   m_rt_pipeline = m_device.createRayTracingPipelineKHR(/*cache = */{}, rt_pipeline_ci).value;
 
   // ONce the pipeline has been created, we can discard the shader modules.
   m_device.destroyShaderModule(raygen_SM);
   m_device.destroyShaderModule(miss_SM);
+  m_device.destroyShaderModule(shadow_miss_SM);
   m_device.destroyShaderModule(closest_hit_SM);
 }
 
@@ -868,11 +880,18 @@ void HelloVulkan::ray_trace(const vk::CommandBuffer& cmd_buffer, const nvmath::v
 
   // Size of a program identifer.
   vk::DeviceSize program_size     = m_rt_properties.shaderGroupHandleSize;
+
+  // Handle # | Shader
+  // ---------+-------------
+  // 0        | Raygen
+  // 1        | Miss
+  // 2        | Shadow miss
+  // 3        | hit group
   vk::DeviceSize raygen_offset    = 0u * program_size;  // Start at the beginning of sbt buffer.
   vk::DeviceSize raygen_stride    = program_size;
   vk::DeviceSize miss_offset      = 1u * program_size;  // Jump over raygen.
   vk::DeviceSize miss_stride      = program_size;
-  vk::DeviceSize hit_group_offset = 2u * program_size; // Jump over the previous headers.
+  vk::DeviceSize hit_group_offset = 3u * program_size;  // Jump over the previous shaders.
   vk::DeviceSize hit_group_stride = program_size;
 
   vk::DeviceSize SBT_size = program_size * (vk::DeviceSize)m_rt_shader_groups.size();

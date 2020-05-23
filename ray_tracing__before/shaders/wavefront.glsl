@@ -20,6 +20,7 @@ struct WaveFrontMaterial
   int   textureId;
 };
 
+// Same memory layout as HelloVulkan::ObjectInstance.
 struct sceneDesc
 {
   int  objId;
