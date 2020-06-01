@@ -30,6 +30,8 @@
 // at the top of imgui.cpp.
 
 #include <array>
+#include <random>
+#include <vector>
 #include <vulkan/vulkan.hpp>
 VULKAN_HPP_DEFAULT_DISPATCH_LOADER_DYNAMIC_STORAGE
 
@@ -187,8 +189,44 @@ int main(int argc, char** argv)
   //helloVk.loadModel(nvh::findFile("media/scenes/cube_multi.obj", defaultSearchPaths));
 
     // Creation of the example
-  helloVk.loadModel(nvh::findFile("media/scenes/Medieval_building.obj", defaultSearchPaths));
+  //helloVk.loadModel(nvh::findFile("media/scenes/Medieval_building.obj", defaultSearchPaths));
   helloVk.loadModel(nvh::findFile("media/scenes/plane.obj", defaultSearchPaths));
+  helloVk.loadModel(nvh::findFile("media/scenes/cube.obj", defaultSearchPaths));
+  helloVk.loadModel(nvh::findFile("media/scenes/cube_multi.obj", defaultSearchPaths));
+
+  std::random_device rd;
+  std::mt19937       gen(rd());
+  std::normal_distribution<float> dis(1.0f, 1.0f);
+  std::normal_distribution<float> disn(0.05f, 0.05f);
+
+  for(int n = 0; n < 2000; ++n) {
+#   ifdef MULTIPLE_INSTANCE
+
+    HelloVulkan::ObjInstance inst;
+    inst.objIndex       = n % 2 + 1;
+    inst.txtOffset      = 0;
+    float         scale = std::fabs(disn(gen));
+    nvmath::mat4f mat =
+        nvmath::translation_mat4(nvmath::vec3f{dis(gen), 2.0f + dis(gen), dis(gen)});
+    mat = mat * nvmath::rotation_mat4_x(dis(gen));
+    mat = mat * nvmath::scale_mat4(nvmath::vec3f(scale));
+
+    inst.transform   = mat;
+    inst.transformIT = nvmath::transpose(nvmath::invert(inst.transform));
+    helloVk.m_objInstance.push_back(inst);
+#else
+    helloVk.loadModel(nvh::findFile("media/scenes/cube_multi.obj", defaultSearchPaths));
+    HelloVulkan::ObjInstance& inst = helloVk.m_objInstance.back();
+
+    float         scale = std::fabs(disn(gen));
+    nvmath::mat4f mat =
+        nvmath::translation_mat4(nvmath::vec3f{dis(gen), 2.0f + dis(gen), dis(gen)});
+    mat              = mat * nvmath::rotation_mat4_x(dis(gen));
+    mat              = mat * nvmath::scale_mat4(nvmath::vec3f(scale));
+    inst.transform   = mat;
+    inst.transformIT = nvmath::transpose(nvmath::invert(inst.transform));
+#   endif
+  }
 
   helloVk.createOffscreenRender();
   helloVk.createDescriptorSetLayout();

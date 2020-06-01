@@ -26,7 +26,8 @@
  */
 #pragma once
 
-#define NVVK_ALLOC_DEDICATED
+//#define NVVK_ALLOC_DEDICATED
+#define NVVK_ALLOC_DMA
 #include "nvvk/raytraceKHR_vk.hpp"
 #include "nvvk/allocator_vk.hpp"
 #include "nvvk/appbase_vkpp.hpp"
@@ -106,8 +107,15 @@ public:
   nvvk::Buffer               m_sceneDesc;  // Device buffer of the OBJ instances
   std::vector<nvvk::Texture> m_textures;   // vector of all textures of the scene
 
-
+#if defined(NVVK_ALLOC_DEDICATED)
   nvvk::AllocatorDedicated m_alloc;  // Allocator for buffer, images, acceleration structures
+#elif defined(NVVK_ALLOC_DMA)
+  nvvk::AllocatorDma            m_alloc;
+  nvvk::DeviceMemoryAllocator   m_mem_allocator;
+  nvvk::StagingMemoryManagerDma m_staging;
+
+#endif  // NVVK_ALLOC_DMA/DEDICATED
+
   nvvk::DebugUtil          m_debug;  // Utility to name objects
 
 

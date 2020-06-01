@@ -74,7 +74,16 @@ void HelloVulkan::setup(const vk::Instance&       instance,
                         uint32_t                  queueFamily)
 {
   AppBase::setup(instance, device, physicalDevice, queueFamily);
+
+#if defined(NVVK_ALLOC_DEDICATED)
   m_alloc.init(device, physicalDevice);
+#elif defined(NVVK_ALLOC_DMA)
+  // When using DMA, memory buffer mapping is done through the DMA interface, instead of VkDevice.
+  m_mem_allocator.init(device, physicalDevice);
+  m_mem_allocator.setAllocateFlags(VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT_KHR, true);
+  m_staging.init(&m_mem_allocator);
+  m_alloc.init(device, physicalDevice, &m_mem_allocator);
+#endif
   m_debug.setup(m_device);
 }
 
@@ -91,9 +100,17 @@ void HelloVulkan::updateUniformBuffer()
   //ubo.proj[1][1] *= -1;  // Inverting Y for Vulkan
   ubo.viewInverse = nvmath::invert(ubo.view);
   ubo.proj_inverse = nvmath::invert(ubo.proj);
+#if defined(NVVK_ALLOC_DEDICATED)
   void* data      = m_device.mapMemory(m_cameraMat.allocation, 0, sizeof(ubo));
   memcpy(data, &ubo, sizeof(ubo));
   m_device.unmapMemory(m_cameraMat.allocation);
+#elif defined(NVVK_ALLOC_DMA)
+  void* data = m_alloc.map(m_cameraMat);
+  memcpy(data, &ubo, sizeof(ubo));
+  m_alloc.unmap(m_cameraMat);
+#else
+  static_assert(false, "no NVVK_ALLOCATOR defined");
+#endif
 }
 
 //--------------------------------------------------------------------------------------------------
@@ -361,7 +378,7 @@ void HelloVulkan::createTextureImages(const vk::CommandBuffer&        cmdBuf,
       auto imageCreateInfo = nvvk::makeImage2DCreateInfo(imgSize, format, vkIU::eSampled, true);
 
       {
-        nvvk::ImageDedicated image =
+        nvvk::Image image =
             m_alloc.createImage(cmdBuf, bufferSize, pixels, imageCreateInfo);
         nvvk::cmdGenerateMipmaps(cmdBuf, image.image, format, imgSize, imageCreateInfo.mipLevels);
         vk::ImageViewCreateInfo ivInfo =
@@ -379,13 +396,7 @@ void HelloVulkan::createTextureImages(const vk::CommandBuffer&        cmdBuf,
 //
 void HelloVulkan::destroyResources()
 {
-    // VKRay
-    m_rt_builder.destroy();
-    m_alloc.destroy(m_rt_SBT_buffer);
-    m_device.destroy(m_rt_pipeline);
-    m_device.destroy(m_rt_pipeline_layout);
-    m_device.destroy(m_rt_descriptor_pool);
-    m_device.destroy(m_rt_descriptor_set_layout);
+
   m_device.destroy(m_graphicsPipeline);
   m_device.destroy(m_pipelineLayout);
   m_device.destroy(m_descPool);
@@ -415,6 +426,21 @@ void HelloVulkan::destroyResources()
   m_alloc.destroy(m_offscreenDepth);
   m_device.destroy(m_offscreenRenderPass);
   m_device.destroy(m_offscreenFramebuffer);
+
+  // VKRay
+  m_rt_builder.destroy();
+
+  m_alloc.destroy(m_rt_SBT_buffer);
+  m_device.destroy(m_rt_pipeline);
+  m_device.destroy(m_rt_pipeline_layout);
+  m_device.destroy(m_rt_descriptor_pool);
+  m_device.destroy(m_rt_descriptor_set_layout);
+
+  m_alloc.deinit();
+#if defined(NVVK_ALLOC_DMA)
+  m_mem_allocator.freeAll();
+  m_mem_allocator.deinit();
+#endif
 }
 
 //--------------------------------------------------------------------------------------------------
@@ -483,7 +509,7 @@ void HelloVulkan::createOffscreenRender()
                                                            | vk::ImageUsageFlagBits::eStorage);
 
 
-    nvvk::ImageDedicated    image  = m_alloc.createImage(colorCreateInfo);
+    nvvk::Image             image  = m_alloc.createImage(colorCreateInfo);
     vk::ImageViewCreateInfo ivInfo = nvvk::makeImageViewCreateInfo(image.image, colorCreateInfo);
     m_offscreenColor               = m_alloc.createTexture(image, ivInfo, vk::SamplerCreateInfo());
     m_offscreenColor.descriptor.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
