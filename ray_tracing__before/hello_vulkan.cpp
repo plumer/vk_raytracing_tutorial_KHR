@@ -886,7 +886,12 @@ void HelloVulkan::create_rt_shader_binding_table() {
 
 void HelloVulkan::ray_trace(const vk::CommandBuffer& cmd_buffer, const nvmath::vec4f& clear_color)
 {
-    using vkSSType = vk::ShaderStageFlagBits;
+  update_frame();
+  // Skips rendering if max number of frames to accumulate has been reached, reducing GPU usage.
+  if (m_rt_push_constants.frame >= m_max_frames)
+      return;
+
+  using vkSSType = vk::ShaderStageFlagBits;
   m_debug.beginLabel(cmd_buffer, "Ray trace");
   // Initializes push constant values.
   m_rt_push_constants.clear_color     = clear_color;
@@ -934,5 +939,20 @@ void HelloVulkan::ray_trace(const vk::CommandBuffer& cmd_buffer, const nvmath::v
                           /* depth = */1);
 
   m_debug.endLabel(cmd_buffer);
+}
+
+void HelloVulkan::reset_frame() {
+  m_rt_push_constants.frame = -1;
+}
+
+void HelloVulkan::update_frame() {
+  static nvmath::mat4f ref_camera_matrix;
+  auto&                m = CameraManip.getMatrix();
+  if(memcmp(&ref_camera_matrix.a00, &m.a00, sizeof(nvmath::mat4f)) != 0)
+  {
+    reset_frame();
+    ref_camera_matrix = m;
+  }
+  m_rt_push_constants.frame += 1;
 }
 

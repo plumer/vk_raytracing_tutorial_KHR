@@ -65,18 +65,28 @@ static void onErrorCallback(int error, const char* description)
 void renderUI(HelloVulkan& helloVk)
 {
   static int item = 1;
+  bool scene_changed = false;
   if(ImGui::Combo("Up Vector", &item, "X\0Y\0Z\0\0"))
   {
     nvmath::vec3f pos, eye, up;
     CameraManip.getLookat(pos, eye, up);
     up = nvmath::vec3f(item == 0, item == 1, item == 2);
     CameraManip.setLookat(pos, eye, up);
+    scene_changed = true;
   }
-  ImGui::SliderFloat3("Light Position", &helloVk.m_pushConstant.lightPosition.x, -20.f, 20.f);
-  ImGui::SliderFloat("Light Intensity", &helloVk.m_pushConstant.lightIntensity, 0.f, 100.f);
-  ImGui::RadioButton("Point", &helloVk.m_pushConstant.lightType, 0);
+  scene_changed |=
+      ImGui::SliderFloat3("Light Position", &helloVk.m_pushConstant.lightPosition.x, -20.f, 20.f);
+  scene_changed |=
+      ImGui::SliderFloat("Light Intensity", &helloVk.m_pushConstant.lightIntensity, 0.f, 100.f);
+  scene_changed |= ImGui::RadioButton("Point", &helloVk.m_pushConstant.lightType, 0);
   ImGui::SameLine();
-  ImGui::RadioButton("Infinite", &helloVk.m_pushConstant.lightType, 1);
+  scene_changed |= ImGui::RadioButton("Infinite", &helloVk.m_pushConstant.lightType, 1);
+
+  scene_changed |= ImGui::InputInt("Max Frames", &helloVk.m_max_frames);
+  helloVk.m_max_frames = std::max(helloVk.m_max_frames, 1);
+
+  if(scene_changed)
+    helloVk.reset_frame();
 }
 
 //////////////////////////////////////////////////////////////////////////

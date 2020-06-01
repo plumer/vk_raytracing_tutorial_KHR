@@ -28,6 +28,7 @@
 
 //#define NVVK_ALLOC_DEDICATED
 #define NVVK_ALLOC_DMA
+//#define NVVK_ALLOC_VMA
 #include "nvvk/raytraceKHR_vk.hpp"
 #include "nvvk/allocator_vk.hpp"
 #include "nvvk/appbase_vkpp.hpp"
@@ -113,6 +114,10 @@ public:
   nvvk::AllocatorDma            m_alloc;
   nvvk::DeviceMemoryAllocator   m_mem_allocator;
   nvvk::StagingMemoryManagerDma m_staging;
+#elif defined(NVVK_ALLOC_VMA)
+  nvvk::AllocatorVma m_alloc;
+  nvvk::StagingMemoryManagerVma m_staging;
+  
 
 #endif  // NVVK_ALLOC_DMA/DEDICATED
 
@@ -179,6 +184,7 @@ public:
       nvmath::vec3f light_position;
       float         light_intensity = 0.0f;
       int           light_type      = 0;
+      int           frame           = 0;
   } m_rt_push_constants;
 
   // Shader binding table: blueprint of the RT process.
@@ -195,4 +201,10 @@ public:
   // Executes the ray tracer.
   void ray_trace(const vk::CommandBuffer &cmd_buffer,
                  const nvmath::vec4f &clear_color);
+
+  void reset_frame();
+  // Resets the frame if the camera matrix has changed
+  void update_frame();
+
+  int m_max_frames = 20;
 };
