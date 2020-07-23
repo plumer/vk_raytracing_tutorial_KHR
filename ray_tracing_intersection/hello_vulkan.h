@@ -26,6 +26,8 @@
  */
 #pragma once
 
+#include "types.h"
+
 #define NVVK_ALLOC_DEDICATED
 #include "nvvk/allocator_vk.hpp"
 #include "nvvk/appbase_vkpp.hpp"
@@ -48,7 +50,7 @@ class HelloVulkan : public nvvk::AppBase
     void setup(const vk::Instance&       instance,
                const vk::Device&         device,
                const vk::PhysicalDevice& physicalDevice,
-               uint32_t                  queueFamily) override;
+               u32                  queueFamily) override;
     void createDescriptorSetLayout();
     void createGraphicsPipeline();
     void loadModel(const std::string& filename, nvmath::mat4f transform = nvmath::mat4f(1));
@@ -80,6 +82,7 @@ class HelloVulkan : public nvvk::AppBase
         uint32_t      txtOffset{0};    // Offset in `m_textures`
         nvmath::mat4f transform{1};    // Position of the instance
         nvmath::mat4f transformIT{1};  // Inverse transpose
+        mat4f dummy;
     };
 
     // Information pushed at each draw call
