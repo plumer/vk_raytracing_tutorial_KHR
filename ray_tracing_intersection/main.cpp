@@ -61,24 +61,7 @@ static void onErrorCallback(int error, const char* description)
 // Extra UI
 void renderUI(HelloVulkan& helloVk)
 {
-    static int item = 1;
-    if (ImGui::Combo("Up Vector", &item, "X\0Y\0Z\0\0")) {
-        nvmath::vec3f pos, eye, up;
-        CameraManip.getLookat(pos, eye, up);
-        up = nvmath::vec3f(item == 0, item == 1, item == 2);
-        CameraManip.setLookat(pos, eye, up);
-    }
-    ImGui::SliderFloat3("Light Position", &helloVk.m_pushConstant.lightPosition.x, -20.f, 20.f);
-    ImGui::SliderFloat("Light Intensity", &helloVk.m_pushConstant.lightIntensity, 0.f, 100.f);
-    ImGui::RadioButton("Point", &helloVk.m_pushConstant.lightType, 0);
-    ImGui::SameLine();
-    ImGui::RadioButton("Infinite", &helloVk.m_pushConstant.lightType, 1);
-    if (ImGui::Button("Reset camera")) {
-        CameraManip.setMode(nvh::CameraManipulator::Fly);
-        CameraManip.setLookat(vec3f(20, 20, 20), vec3(0, 1, 0), vec3(0, 1, 0), false);
-        CameraManip.setMode(nvh::CameraManipulator::Examine);
 
-    }
 }
 
 //////////////////////////////////////////////////////////////////////////
@@ -104,9 +87,13 @@ int main(int argc, char** argv)
                                           "NVIDIA Vulkan Raytracing Tutorial", nullptr, nullptr);
 
     // Setup camera
-    CameraManip.setWindowSize(SAMPLE_WIDTH, SAMPLE_HEIGHT);
-    CameraManip.setLookat(nvmath::vec3f(20, 20, 20), nvmath::vec3f(0, 1, 0),
-                          nvmath::vec3f(0, 1, 0));
+    auto camera_navigator = std::make_shared<vkpbr::CameraNavigator>();
+    camera_navigator->SetWindowSize(SAMPLE_WIDTH, SAMPLE_HEIGHT);
+    camera_navigator->SetLookAt(glm::vec3(20, 20, 20), glm::vec3(0, 1, 0), glm::vec3(0, 1, 0));
+
+    //CameraManip.setWindowSize(SAMPLE_WIDTH, SAMPLE_HEIGHT);
+    //CameraManip.setLookat(nvmath::vec3f(20, 20, 20), nvmath::vec3f(0, 1, 0),
+    //                      nvmath::vec3f(0, 1, 0));
 
     // Setup Vulkan
     if (!glfwVulkanSupported()) {
@@ -163,6 +150,9 @@ int main(int argc, char** argv)
 
     // Create example
     HelloVulkan helloVk;
+
+    // Shares the camera with the app.
+    helloVk.setCamera(camera_navigator);
 
     // Window need to be opened to get the surface on which to draw
     const vk::SurfaceKHR surface = helloVk.getVkSurface(vkctx.m_instance, window);
@@ -229,7 +219,31 @@ int main(int argc, char** argv)
             ImGui::Checkbox("Ray Tracer mode",
                             &useRaytracer);  // Switch between raster and ray tracing
 
-            renderUI(helloVk);
+            static int item = 1;
+            if (ImGui::Combo("Up Vector", &item, "X\0Y\0Z\0\0")) {
+                //nvmath::vec3f pos, eye, up;
+                //CameraManip.getLookat(pos, eye, up);
+                //up = nvmath::vec3f(item == 0, item == 1, item == 2);
+                //CameraManip.setLookat(pos, eye, up);
+
+                vkpbr::CameraNavigator::Camera c = camera_navigator->GetLookAt();
+                glm::vec3 up(item == 0, item == 1, item == 2);
+                camera_navigator->SetLookAt(c.eye, c.center, up);
+            }
+            ImGui::SliderFloat3("Light Position", &helloVk.m_pushConstant.lightPosition.x, -20.f, 20.f);
+            ImGui::SliderFloat("Light Intensity", &helloVk.m_pushConstant.lightIntensity, 0.f, 100.f);
+            ImGui::RadioButton("Point", &helloVk.m_pushConstant.lightType, 0);
+            ImGui::SameLine();
+            ImGui::RadioButton("Infinite", &helloVk.m_pushConstant.lightType, 1);
+            if (ImGui::Button("Reset camera")) {
+                //CameraManip.setMode(nvh::CameraManipulator::Fly);
+                //CameraManip.setLookat(vec3f(20, 20, 20), vec3(0, 1, 0), vec3(0, 1, 0), false);
+                //CameraManip.setMode(nvh::CameraManipulator::Examine);
+                camera_navigator->SetMode(vkpbr::CameraNavigator::Modes::kFly);
+                camera_navigator->SetLookAt(glm::vec3(20, 20, 20), glm::vec3(0, 1, 0), glm::vec3(0, 1, 0), true);
+                camera_navigator->SetMode(vkpbr::CameraNavigator::Modes::kExamine);
+            }
+
             ImGui::Text("Application average %.3f ms/frame (%.1f FPS)",
                         1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
             ImGui::Render();

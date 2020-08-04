@@ -47,53 +47,18 @@ class Logger : public std::ostringstream
                    << " vs. " << val2 << "): "
 
 #define LOG_INFO                                                                                   \
-    if (false) 0; else                                                                                \                                                                                       \
-        Logger(LogSeverity::kInfo, __FILE__, __LINE__).stream()
+    if (false) 0; else Logger(LogSeverity::kInfo, __FILE__, __LINE__).stream()
 
 #define LOG_ERROR                                                                                  \
-    if (false) 0; else \
-        Logger(LogSeverity::kError, __FILE__, __LINE__).stream()
+    if (false) 0; else Logger(LogSeverity::kError, __FILE__, __LINE__).stream()
 
 #define LOG_WARNING                                                                                \
-    if (false) 0; else \
-        Logger(LogSeverity::kWarning, __FILE__, __LINE__).stream()
+    if (false) 0; else Logger(LogSeverity::kWarning, __FILE__, __LINE__).stream()
 
 #define LOG_FATAL                                                                                  \
-    if (false) 0; else \
-        Logger(LogSeverity::kFatal, __FILE__, __LINE__).stream()
+    if (false) 0; else Logger(LogSeverity::kFatal, __FILE__, __LINE__).stream()
 
 
 #endif  // LOGGING_H_
 
-#ifdef LOGGING_H_IMPLEMENTATION
 
-#include <cstdlib>
-#include <ctime>
-#include <iostream>
-
-Logger::Logger(LogSeverity severity, const char* file_name, int line_number)
-    : severity_(severity)
-{
-    struct timespec ts;
-    timespec_get(&ts, TIME_UTC);
-
-    struct tm local_timespec;
-    localtime_s(&local_timespec, &ts.tv_sec);
-
-    char buffer[64];
-    strftime(buffer, sizeof(buffer), "%T", &local_timespec);
-
-    static constexpr char kLevelAbbrev[] = {'I', 'W', 'E', 'F'};
-    (*this) << kLevelAbbrev[severity] << ' ' << buffer << '.' << ts.tv_nsec / 1000 << "  "
-            << file_name << ':' << line_number << "] ";
-}
-
-Logger::~Logger()
-{
-    std::cerr << str() << std::endl;
-    if (severity_ == LogSeverity::kFatal) {
-        std::abort();
-    }
-}
-
-#endif  // LOGGING_H_IMPLEMENTATION

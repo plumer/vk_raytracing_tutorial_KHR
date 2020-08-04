@@ -31,24 +31,22 @@
 extern std::vector<std::string> defaultSearchPaths;
 
 #define STB_IMAGE_IMPLEMENTATION
-#include "fileformats/stb_image.h"
-#include "obj_loader.h"
-
-#include "hello_vulkan.h"
-#include "nvh//cameramanipulator.hpp"
-#include "nvvk/descriptorsets_vk.hpp"
-#include "nvvk/pipeline_vk.hpp"
-
-#include "nvh/fileoperations.hpp"
-#include "nvvk/commands_vk.hpp"
-#include "nvvk/renderpasses_vk.hpp"
-
-#include "nvvk/shaders_vk.hpp"
 #include <random>
 
+#include "fileformats/stb_image.h"
+#include "hello_vulkan.h"
+#include "nvh/fileoperations.hpp"
+#include "nvvk/commands_vk.hpp"
+#include "nvvk/descriptorsets_vk.hpp"
+#include "nvvk/pipeline_vk.hpp"
+#include "nvvk/renderpasses_vk.hpp"
+#include "nvvk/shaders_vk.hpp"
+#include "obj_loader.h"
+#define GLM_FORCE_RADIANS
+#include <glm/gtx/transform.hpp>
+
 // Holding the camera matrices
-struct CameraMatrices
-{
+struct CameraMatrices {
     nvmath::mat4f view;
     nvmath::mat4f proj;
     nvmath::mat4f viewInverse;
@@ -60,11 +58,8 @@ struct CameraMatrices
 // Keep the handle on the device
 // Initialize the tool to do all our allocations: buffers, images
 //
-void HelloVulkan::setup(const vk::Instance&       instance,
-                        const vk::Device&         device,
-                        const vk::PhysicalDevice& physicalDevice,
-                        uint32_t                  queueFamily)
-{
+void HelloVulkan::setup(const vk::Instance& instance, const vk::Device& device,
+                        const vk::PhysicalDevice& physicalDevice, uint32_t queueFamily) {
     AppBase::setup(instance, device, physicalDevice, queueFamily);
     m_alloc.init(device, physicalDevice);
     m_debug.setup(m_device);
@@ -73,29 +68,33 @@ void HelloVulkan::setup(const vk::Instance&       instance,
 //--------------------------------------------------------------------------------------------------
 // Called at each frame to update the camera matrix
 //
-void HelloVulkan::updateUniformBuffer()
-{
-    CameraManip.updateAnim();
+void HelloVulkan::updateUniformBuffer() {
+    //CameraManip.updateAnim();
+    m_camera_navigator->UpdateAnimation();
     const float aspectRatio = m_size.width / static_cast<float>(m_size.height);
 
-    CameraMatrices ubo = {};
-    ubo.view           = CameraManip.getMatrix();
-    ubo.proj           = nvmath::perspectiveVK(CameraManip.getFov(), aspectRatio, 0.1f, 1000.0f);
-    // ubo.proj[1][1] *= -1;  // Inverting Y for Vulkan
-    ubo.viewInverse = nvmath::invert(ubo.view);
-    // #VKRay
-    ubo.projInverse = nvmath::invert(ubo.proj);
+    struct {
+        glm::mat4 view;
+        glm::mat4 proj;
+        glm::mat4 view_inverse;
+        glm::mat4 proj_inverse;
+    } glm_ubo;
+    glm_ubo.view = m_camera_navigator->ViewMatrix();
+    glm_ubo.proj =
+        glm::perspective(glm::radians(m_camera_navigator->Fov()), aspectRatio, 0.1f, 1000.0f);
+    glm_ubo.proj[1][1] *= -1;
+    glm_ubo.view_inverse = glm::inverse(glm_ubo.view);
+    glm_ubo.proj_inverse = glm::inverse(glm_ubo.proj);
 
-    void* data = m_device.mapMemory(m_cameraMat.allocation, 0, sizeof(ubo));
-    memcpy(data, &ubo, sizeof(ubo));
+    void* data = m_device.mapMemory(m_cameraMat.allocation, 0, sizeof(glm_ubo));
+    memcpy(data, &glm_ubo, sizeof(glm_ubo));
     m_device.unmapMemory(m_cameraMat.allocation);
 }
 
 //--------------------------------------------------------------------------------------------------
 // Describing the layout pushed when rendering
 //
-void HelloVulkan::createDescriptorSetLayout()
-{
+void HelloVulkan::createDescriptorSetLayout() {
     using vkDS     = vk::DescriptorSetLayoutBinding;
     using vkDT     = vk::DescriptorType;
     using vkSS     = vk::ShaderStageFlagBits;
@@ -136,8 +135,7 @@ void HelloVulkan::createDescriptorSetLayout()
 //--------------------------------------------------------------------------------------------------
 // Setting up the buffers in the descriptor set
 //
-void HelloVulkan::updateDescriptorSet()
-{
+void HelloVulkan::updateDescriptorSet() {
     std::vector<vk::WriteDescriptorSet> writes;
 
     // Camera matrices and scene description
@@ -182,8 +180,7 @@ void HelloVulkan::updateDescriptorSet()
 //--------------------------------------------------------------------------------------------------
 // Creating the pipeline layout
 //
-void HelloVulkan::createGraphicsPipeline()
-{
+void HelloVulkan::createGraphicsPipeline() {
     using vkSS = vk::ShaderStageFlagBits;
 
     vk::PushConstantRange pushConstantRanges = {vkSS::eVertex | vkSS::eFragment, 0,
@@ -218,8 +215,7 @@ void HelloVulkan::createGraphicsPipeline()
 //--------------------------------------------------------------------------------------------------
 // Loading the OBJ file and setting up all buffers
 //
-void HelloVulkan::loadModel(const std::string& filename, nvmath::mat4f transform)
-{
+void HelloVulkan::loadModel(const std::string& filename, nvmath::mat4f transform) {
     using vkBU = vk::BufferUsageFlagBits;
 
     ObjLoader loader;
@@ -272,8 +268,7 @@ void HelloVulkan::loadModel(const std::string& filename, nvmath::mat4f transform
 // Creating the uniform buffer holding the camera matrices
 // - Buffer is host visible
 //
-void HelloVulkan::createUniformBuffer()
-{
+void HelloVulkan::createUniformBuffer() {
     using vkBU = vk::BufferUsageFlagBits;
     using vkMP = vk::MemoryPropertyFlagBits;
 
@@ -288,8 +283,7 @@ void HelloVulkan::createUniformBuffer()
 // - Transformation
 // - Offset for texture
 //
-void HelloVulkan::createSceneDescriptionBuffer()
-{
+void HelloVulkan::createSceneDescriptionBuffer() {
     using vkBU = vk::BufferUsageFlagBits;
     nvvk::CommandPool cmdGen(m_device, m_graphicsQueueIndex);
 
@@ -304,8 +298,7 @@ void HelloVulkan::createSceneDescriptionBuffer()
 // Creating all textures and samplers
 //
 void HelloVulkan::createTextureImages(const vk::CommandBuffer&        cmdBuf,
-                                      const std::vector<std::string>& textures)
-{
+                                      const std::vector<std::string>& textures) {
     using vkIU = vk::ImageUsageFlagBits;
 
     vk::SamplerCreateInfo samplerCreateInfo{
@@ -375,8 +368,7 @@ void HelloVulkan::createTextureImages(const vk::CommandBuffer&        cmdBuf,
 //--------------------------------------------------------------------------------------------------
 // Destroying all allocations
 //
-void HelloVulkan::destroyResources()
-{
+void HelloVulkan::destroyResources() {
     m_device.destroy(m_graphicsPipeline);
     m_device.destroy(m_pipelineLayout);
     m_device.destroy(m_descPool);
@@ -422,8 +414,7 @@ void HelloVulkan::destroyResources()
 //--------------------------------------------------------------------------------------------------
 // Drawing the scene in raster mode
 //
-void HelloVulkan::rasterize(const vk::CommandBuffer& cmdBuf)
-{
+void HelloVulkan::rasterize(const vk::CommandBuffer& cmdBuf) {
     using vkPBP = vk::PipelineBindPoint;
     using vkSS  = vk::ShaderStageFlagBits;
     vk::DeviceSize offset{0};
@@ -454,8 +445,7 @@ void HelloVulkan::rasterize(const vk::CommandBuffer& cmdBuf)
 //--------------------------------------------------------------------------------------------------
 // Handling resize of the window
 //
-void HelloVulkan::onResize(int /*w*/, int /*h*/)
-{
+void HelloVulkan::onResize(int /*w*/, int /*h*/) {
     createOffscreenRender();
     updatePostDescriptorSet();
     updateRtDescriptorSet();
@@ -468,8 +458,7 @@ void HelloVulkan::onResize(int /*w*/, int /*h*/)
 //--------------------------------------------------------------------------------------------------
 // Creating an offscreen frame buffer and the associated render pass
 //
-void HelloVulkan::createOffscreenRender()
-{
+void HelloVulkan::createOffscreenRender() {
     m_alloc.destroy(m_offscreenColor);
     m_alloc.destroy(m_offscreenDepth);
 
@@ -543,8 +532,7 @@ void HelloVulkan::createOffscreenRender()
 //--------------------------------------------------------------------------------------------------
 // The pipeline is how things are rendered, which shaders, type of primitives, depth test and more
 //
-void HelloVulkan::createPostPipeline()
-{
+void HelloVulkan::createPostPipeline() {
     // Push constants in the fragment shader
     vk::PushConstantRange pushConstantRanges = {vk::ShaderStageFlagBits::eFragment, 0,
                                                 sizeof(float)};
@@ -575,8 +563,7 @@ void HelloVulkan::createPostPipeline()
 // The descriptor layout is the description of the data that is passed to the vertex or the
 // fragment program.
 //
-void HelloVulkan::createPostDescriptor()
-{
+void HelloVulkan::createPostDescriptor() {
     using vkDS = vk::DescriptorSetLayoutBinding;
     using vkDT = vk::DescriptorType;
     using vkSS = vk::ShaderStageFlagBits;
@@ -590,8 +577,7 @@ void HelloVulkan::createPostDescriptor()
 //--------------------------------------------------------------------------------------------------
 // Update the output
 //
-void HelloVulkan::updatePostDescriptorSet()
-{
+void HelloVulkan::updatePostDescriptorSet() {
     vk::WriteDescriptorSet writeDescriptorSets =
         m_postDescSetLayoutBind.makeWrite(m_postDescSet, 0, &m_offscreenColor.descriptor);
     m_device.updateDescriptorSets(writeDescriptorSets, nullptr);
@@ -600,8 +586,7 @@ void HelloVulkan::updatePostDescriptorSet()
 //--------------------------------------------------------------------------------------------------
 // Draw a full screen quad with the attached image
 //
-void HelloVulkan::drawPost(vk::CommandBuffer cmdBuf)
-{
+void HelloVulkan::drawPost(vk::CommandBuffer cmdBuf) {
     m_debug.beginLabel(cmdBuf, "Post");
 
     cmdBuf.setViewport(0, {vk::Viewport(0, 0, (float)m_size.width, (float)m_size.height, 0, 1)});
@@ -625,8 +610,7 @@ void HelloVulkan::drawPost(vk::CommandBuffer cmdBuf)
 //--------------------------------------------------------------------------------------------------
 // Initialize Vulkan ray tracing
 // #VKRay
-void HelloVulkan::initRayTracing()
-{
+void HelloVulkan::initRayTracing() {
     // Requesting ray tracing properties
     auto properties = m_physicalDevice.getProperties2<vk::PhysicalDeviceProperties2,
                                                       vk::PhysicalDeviceRayTracingPropertiesKHR>();
@@ -637,8 +621,7 @@ void HelloVulkan::initRayTracing()
 //--------------------------------------------------------------------------------------------------
 // Converting a OBJ primitive to the ray tracing geometry used for the BLAS
 //
-nvvk::RaytracingBuilderKHR::Blas HelloVulkan::objectToVkGeometryKHR(const ObjModel& model)
-{
+nvvk::RaytracingBuilderKHR::Blas HelloVulkan::objectToVkGeometryKHR(const ObjModel& model) {
     vk::AccelerationStructureCreateGeometryTypeInfoKHR asCreate;
     asCreate.setGeometryType(vk::GeometryTypeKHR::eTriangles);
     asCreate.setIndexType(vk::IndexType::eUint32);
@@ -679,8 +662,7 @@ nvvk::RaytracingBuilderKHR::Blas HelloVulkan::objectToVkGeometryKHR(const ObjMod
 //--------------------------------------------------------------------------------------------------
 // Returning the ray tracing geometry used for the BLAS, containing all spheres
 //
-nvvk::RaytracingBuilderKHR::Blas HelloVulkan::sphereToVkGeometryKHR()
-{
+nvvk::RaytracingBuilderKHR::Blas HelloVulkan::sphereToVkGeometryKHR() {
     vk::AccelerationStructureCreateGeometryTypeInfoKHR asCreate;
     asCreate.setGeometryType(vk::GeometryTypeKHR::eAabbs);
     asCreate.setMaxPrimitiveCount((uint32_t)m_spheres.size());  // Nb triangles
@@ -717,8 +699,7 @@ nvvk::RaytracingBuilderKHR::Blas HelloVulkan::sphereToVkGeometryKHR()
 //--------------------------------------------------------------------------------------------------
 // Creating all spheres
 //
-void HelloVulkan::createSpheres()
-{
+void HelloVulkan::createSpheres() {
     std::random_device                    rd{};
     std::mt19937                          gen{rd()};
     std::normal_distribution<float>       xzd{0.f, 5.f};
@@ -773,8 +754,7 @@ void HelloVulkan::createSpheres()
     m_debug.setObjectName(m_spheresMatIndexBuffer.buffer, "spheresMatIdx");
 }
 
-void HelloVulkan::createBottomLevelAS()
-{
+void HelloVulkan::createBottomLevelAS() {
     // BLAS - Storing each primitive in a geometry
     std::vector<nvvk::RaytracingBuilderKHR::Blas> allBlas;
     allBlas.reserve(m_objModel.size());
@@ -794,8 +774,7 @@ void HelloVulkan::createBottomLevelAS()
     m_rtBuilder.buildBlas(allBlas, vk::BuildAccelerationStructureFlagBitsKHR::ePreferFastTrace);
 }
 
-void HelloVulkan::createTopLevelAS()
-{
+void HelloVulkan::createTopLevelAS() {
     std::vector<nvvk::RaytracingBuilderKHR::Instance> tlas;
     tlas.reserve(m_objInstance.size());
     for (int i = 0; i < static_cast<int>(m_objInstance.size()); i++) {
@@ -825,8 +804,7 @@ void HelloVulkan::createTopLevelAS()
 //--------------------------------------------------------------------------------------------------
 // This descriptor set holds the Acceleration structure and the output image
 //
-void HelloVulkan::createRtDescriptorSet()
-{
+void HelloVulkan::createRtDescriptorSet() {
     using vkDT   = vk::DescriptorType;
     using vkSS   = vk::ShaderStageFlagBits;
     using vkDSLB = vk::DescriptorSetLayoutBinding;
@@ -858,8 +836,7 @@ void HelloVulkan::createRtDescriptorSet()
 // Writes the output image to the descriptor set
 // - Required when changing resolution
 //
-void HelloVulkan::updateRtDescriptorSet()
-{
+void HelloVulkan::updateRtDescriptorSet() {
     using vkDT = vk::DescriptorType;
 
     // (1) Output buffer
@@ -873,8 +850,7 @@ void HelloVulkan::updateRtDescriptorSet()
 //--------------------------------------------------------------------------------------------------
 // Pipeline for the ray tracer: all shaders, raygen, chit, miss
 //
-void HelloVulkan::createRtPipeline()
-{
+void HelloVulkan::createRtPipeline() {
     std::vector<std::string> paths = defaultSearchPaths;
 
     vk::ShaderModule raygenSM =
@@ -988,8 +964,7 @@ void HelloVulkan::createRtPipeline()
 // - Besides exception, this could be always done like this
 //   See how the SBT buffer is used in run()
 //
-void HelloVulkan::createRtShaderBindingTable()
-{
+void HelloVulkan::createRtShaderBindingTable() {
     auto groupCount =
         static_cast<uint32_t>(m_rtShaderGroups.size());  // 3 shaders: raygen, miss, chit
     uint32_t groupHandleSize =
@@ -1018,8 +993,7 @@ void HelloVulkan::createRtShaderBindingTable()
 //--------------------------------------------------------------------------------------------------
 // Ray Tracing the scene
 //
-void HelloVulkan::raytrace(const vk::CommandBuffer& cmdBuf, const nvmath::vec4f& clearColor)
-{
+void HelloVulkan::raytrace(const vk::CommandBuffer& cmdBuf, const nvmath::vec4f& clearColor) {
     m_debug.beginLabel(cmdBuf, "Ray trace");
     // Initializing push constant values
     m_rtPushConstants.clearColor     = clearColor;

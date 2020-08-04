@@ -106,6 +106,7 @@ void CameraNavigator::SetMatrix(glm::mat4 matrix) {
 void CameraNavigator::Motion(int x, int y, Actions action) {
     f32 dx = cast_f32(x - mouse_position_.x) / cast_f32(width_);
     f32 dy = cast_f32(y - mouse_position_.y) / cast_f32(height_);
+
     switch (action) {
         case Actions::kOrbit:
             if (mode_ == Modes::kTrackball)
@@ -204,7 +205,7 @@ void CameraNavigator::Pan(float dx, float dy) {
     glm::vec3 z      = glm::normalize(current_.eye - current_.center);
     glm::vec3 x      = glm::normalize(glm::cross(current_.up, z));
     glm::vec3 y      = glm::normalize(glm::cross(z, x));
-    f32       length = cast_f32(glm::length(z)) / 0.785f;
+    f32       length = cast_f32(glm::distance(current_.eye, current_.center)) / 0.785f;
 
     x *= -dx * length;
     y *= dy * length;
