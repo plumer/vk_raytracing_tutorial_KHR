@@ -75,6 +75,7 @@ void HelloVulkan::setup(const vk::Instance&       instance,
 //
 void HelloVulkan::updateUniformBuffer()
 {
+    CameraManip.updateAnim();
     const float aspectRatio = m_size.width / static_cast<float>(m_size.height);
 
     CameraMatrices ubo = {};

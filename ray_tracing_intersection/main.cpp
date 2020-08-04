@@ -73,6 +73,12 @@ void renderUI(HelloVulkan& helloVk)
     ImGui::RadioButton("Point", &helloVk.m_pushConstant.lightType, 0);
     ImGui::SameLine();
     ImGui::RadioButton("Infinite", &helloVk.m_pushConstant.lightType, 1);
+    if (ImGui::Button("Reset camera")) {
+        CameraManip.setMode(nvh::CameraManipulator::Fly);
+        CameraManip.setLookat(vec3f(20, 20, 20), vec3(0, 1, 0), vec3(0, 1, 0), false);
+        CameraManip.setMode(nvh::CameraManipulator::Examine);
+
+    }
 }
 
 //////////////////////////////////////////////////////////////////////////

@@ -47,23 +47,19 @@ class Logger : public std::ostringstream
                    << " vs. " << val2 << "): "
 
 #define LOG_INFO                                                                                   \
-    if (false) else                                                                                \
-    default:                                                                                       \
+    if (false) 0; else                                                                                \                                                                                       \
         Logger(LogSeverity::kInfo, __FILE__, __LINE__).stream()
 
 #define LOG_ERROR                                                                                  \
-    switch (0)                                                                                     \
-    default:                                                                                       \
+    if (false) 0; else \
         Logger(LogSeverity::kError, __FILE__, __LINE__).stream()
 
 #define LOG_WARNING                                                                                \
-    switch (0)                                                                                     \
-    default:                                                                                       \
+    if (false) 0; else \
         Logger(LogSeverity::kWarning, __FILE__, __LINE__).stream()
 
 #define LOG_FATAL                                                                                  \
-    switch (0)                                                                                     \
-    default:                                                                                       \
+    if (false) 0; else \
         Logger(LogSeverity::kFatal, __FILE__, __LINE__).stream()
 
 

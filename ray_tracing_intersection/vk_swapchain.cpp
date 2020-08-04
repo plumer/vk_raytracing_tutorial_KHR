@@ -209,6 +209,7 @@ bool SwapChain::AcquireCustom(vk::Semaphore semaphore)
                 return false;
         }
     }
+    return false;
 }
 
 vk::Image SwapChain::GetImage(u32 i) const
