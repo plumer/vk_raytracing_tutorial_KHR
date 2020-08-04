@@ -58,11 +58,11 @@ struct CameraMatrices {
 // Keep the handle on the device
 // Initialize the tool to do all our allocations: buffers, images
 //
-void HelloVulkan::setup(const vk::Instance& instance, const vk::Device& device,
+void HelloVulkan::Setup(const vk::Instance& instance, const vk::Device& device,
                         const vk::PhysicalDevice& physicalDevice, uint32_t queueFamily) {
-    AppBase::setup(instance, device, physicalDevice, queueFamily);
+    AppBase::Setup(instance, device, physicalDevice, queueFamily);
     m_alloc.init(device, physicalDevice);
-    m_debug.setup(m_device);
+    m_debug.setup(device_);
 }
 
 //--------------------------------------------------------------------------------------------------
@@ -70,8 +70,8 @@ void HelloVulkan::setup(const vk::Instance& instance, const vk::Device& device,
 //
 void HelloVulkan::updateUniformBuffer() {
     //CameraManip.updateAnim();
-    m_camera_navigator->UpdateAnimation();
-    const float aspectRatio = m_size.width / static_cast<float>(m_size.height);
+    camera_navigator_->UpdateAnimation();
+    const float aspectRatio = window_size_.width / static_cast<float>(window_size_.height);
 
     struct {
         glm::mat4 view;
@@ -79,16 +79,16 @@ void HelloVulkan::updateUniformBuffer() {
         glm::mat4 view_inverse;
         glm::mat4 proj_inverse;
     } glm_ubo;
-    glm_ubo.view = m_camera_navigator->ViewMatrix();
+    glm_ubo.view = camera_navigator_->ViewMatrix();
     glm_ubo.proj =
-        glm::perspective(glm::radians(m_camera_navigator->Fov()), aspectRatio, 0.1f, 1000.0f);
+        glm::perspective(glm::radians(camera_navigator_->Fov()), aspectRatio, 0.1f, 1000.0f);
     glm_ubo.proj[1][1] *= -1;
     glm_ubo.view_inverse = glm::inverse(glm_ubo.view);
     glm_ubo.proj_inverse = glm::inverse(glm_ubo.proj);
 
-    void* data = m_device.mapMemory(m_cameraMat.allocation, 0, sizeof(glm_ubo));
+    void* data = device_.mapMemory(m_cameraMat.allocation, 0, sizeof(glm_ubo));
     memcpy(data, &glm_ubo, sizeof(glm_ubo));
-    m_device.unmapMemory(m_cameraMat.allocation);
+    device_.unmapMemory(m_cameraMat.allocation);
 }
 
 //--------------------------------------------------------------------------------------------------
@@ -127,9 +127,9 @@ void HelloVulkan::createDescriptorSetLayout() {
         vkDS(7, vkDT::eStorageBuffer, 1, vkSS::eClosestHitKHR | vkSS::eIntersectionKHR));
 
 
-    m_descSetLayout = m_descSetLayoutBind.createLayout(m_device);
-    m_descPool      = m_descSetLayoutBind.createPool(m_device, 1);
-    m_descSet       = nvvk::allocateDescriptorSet(m_device, m_descPool, m_descSetLayout);
+    m_descSetLayout = m_descSetLayoutBind.createLayout(device_);
+    m_descPool      = m_descSetLayoutBind.createPool(device_, 1);
+    m_descSet       = nvvk::allocateDescriptorSet(device_, m_descPool, m_descSetLayout);
 }
 
 //--------------------------------------------------------------------------------------------------
@@ -174,7 +174,7 @@ void HelloVulkan::updateDescriptorSet() {
     writes.emplace_back(m_descSetLayoutBind.makeWriteArray(m_descSet, 3, diit.data()));
 
     // Writing the information
-    m_device.updateDescriptorSets(static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
+    device_.updateDescriptorSets(static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
 }
 
 //--------------------------------------------------------------------------------------------------
@@ -193,11 +193,11 @@ void HelloVulkan::createGraphicsPipeline() {
     pipelineLayoutCreateInfo.setPSetLayouts(&descSetLayout);
     pipelineLayoutCreateInfo.setPushConstantRangeCount(1);
     pipelineLayoutCreateInfo.setPPushConstantRanges(&pushConstantRanges);
-    m_pipelineLayout = m_device.createPipelineLayout(pipelineLayoutCreateInfo);
+    m_pipelineLayout = device_.createPipelineLayout(pipelineLayoutCreateInfo);
 
     // Creating the Pipeline
     std::vector<std::string>                paths = defaultSearchPaths;
-    nvvk::GraphicsPipelineGeneratorCombined gpb(m_device, m_pipelineLayout, m_offscreenRenderPass);
+    nvvk::GraphicsPipelineGeneratorCombined gpb(device_, m_pipelineLayout, m_offscreenRenderPass);
     gpb.depthStencilState.depthTestEnable = true;
     gpb.addShader(nvh::loadFile("shaders/vert_shader.vert.spv", true, paths), vkSS::eVertex);
     gpb.addShader(nvh::loadFile("shaders/frag_shader.frag.spv", true, paths), vkSS::eFragment);
@@ -239,7 +239,7 @@ void HelloVulkan::loadModel(const std::string& filename, nvmath::mat4f transform
     model.nbVertices = static_cast<uint32_t>(loader.m_vertices.size());
 
     // Create the buffers on Device and copy vertices, indices and materials
-    nvvk::CommandPool cmdBufGet(m_device, m_graphicsQueueIndex);
+    nvvk::CommandPool cmdBufGet(device_, graphics_queue_index_);
     vk::CommandBuffer cmdBuf = cmdBufGet.createCommandBuffer();
     model.vertexBuffer       = m_alloc.createBuffer(cmdBuf, loader.m_vertices,
                                               vkBU::eVertexBuffer | vkBU::eStorageBuffer
@@ -285,7 +285,7 @@ void HelloVulkan::createUniformBuffer() {
 //
 void HelloVulkan::createSceneDescriptionBuffer() {
     using vkBU = vk::BufferUsageFlagBits;
-    nvvk::CommandPool cmdGen(m_device, m_graphicsQueueIndex);
+    nvvk::CommandPool cmdGen(device_, graphics_queue_index_);
 
     auto cmdBuf = cmdGen.createCommandBuffer();
     m_sceneDesc = m_alloc.createBuffer(cmdBuf, m_objInstance, vkBU::eStorageBuffer);
@@ -369,10 +369,10 @@ void HelloVulkan::createTextureImages(const vk::CommandBuffer&        cmdBuf,
 // Destroying all allocations
 //
 void HelloVulkan::destroyResources() {
-    m_device.destroy(m_graphicsPipeline);
-    m_device.destroy(m_pipelineLayout);
-    m_device.destroy(m_descPool);
-    m_device.destroy(m_descSetLayout);
+    device_.destroy(m_graphicsPipeline);
+    device_.destroy(m_pipelineLayout);
+    device_.destroy(m_descPool);
+    device_.destroy(m_descSetLayout);
     m_alloc.destroy(m_cameraMat);
     m_alloc.destroy(m_sceneDesc);
 
@@ -388,21 +388,21 @@ void HelloVulkan::destroyResources() {
     }
 
     //#Post
-    m_device.destroy(m_postPipeline);
-    m_device.destroy(m_postPipelineLayout);
-    m_device.destroy(m_postDescPool);
-    m_device.destroy(m_postDescSetLayout);
+    device_.destroy(m_postPipeline);
+    device_.destroy(m_postPipelineLayout);
+    device_.destroy(m_postDescPool);
+    device_.destroy(m_postDescSetLayout);
     m_alloc.destroy(m_offscreenColor);
     m_alloc.destroy(m_offscreenDepth);
-    m_device.destroy(m_offscreenRenderPass);
-    m_device.destroy(m_offscreenFramebuffer);
+    device_.destroy(m_offscreenRenderPass);
+    device_.destroy(m_offscreenFramebuffer);
 
     // #VKRay
     m_rtBuilder.destroy();
-    m_device.destroy(m_rtDescPool);
-    m_device.destroy(m_rtDescSetLayout);
-    m_device.destroy(m_rtPipeline);
-    m_device.destroy(m_rtPipelineLayout);
+    device_.destroy(m_rtDescPool);
+    device_.destroy(m_rtDescSetLayout);
+    device_.destroy(m_rtPipeline);
+    device_.destroy(m_rtPipelineLayout);
     m_alloc.destroy(m_rtSBTBuffer);
 
     m_alloc.destroy(m_spheresBuffer);
@@ -422,8 +422,8 @@ void HelloVulkan::rasterize(const vk::CommandBuffer& cmdBuf) {
     m_debug.beginLabel(cmdBuf, "Rasterize");
 
     // Dynamic Viewport
-    cmdBuf.setViewport(0, {vk::Viewport(0, 0, (float)m_size.width, (float)m_size.height, 0, 1)});
-    cmdBuf.setScissor(0, {{{0, 0}, {m_size.width, m_size.height}}});
+    cmdBuf.setViewport(0, {vk::Viewport(0, 0, (float)window_size_.width, (float)window_size_.height, 0, 1)});
+    cmdBuf.setScissor(0, {{{0, 0}, {window_size_.width, window_size_.height}}});
 
     // Drawing all triangles
     cmdBuf.bindPipeline(vkPBP::eGraphics, m_graphicsPipeline);
@@ -445,7 +445,8 @@ void HelloVulkan::rasterize(const vk::CommandBuffer& cmdBuf) {
 //--------------------------------------------------------------------------------------------------
 // Handling resize of the window
 //
-void HelloVulkan::onResize(int /*w*/, int /*h*/) {
+void HelloVulkan::WindowResizeCallback(int w, int h) {
+    AppBase::WindowResizeCallback(w, h);
     createOffscreenRender();
     updatePostDescriptorSet();
     updateRtDescriptorSet();
@@ -464,7 +465,7 @@ void HelloVulkan::createOffscreenRender() {
 
     // Creating the color image
     {
-        auto colorCreateInfo = nvvk::makeImage2DCreateInfo(m_size, m_offscreenColorFormat,
+        auto colorCreateInfo = nvvk::makeImage2DCreateInfo(window_size_, m_offscreenColorFormat,
                                                            vk::ImageUsageFlagBits::eColorAttachment
                                                                | vk::ImageUsageFlagBits::eSampled
                                                                | vk::ImageUsageFlagBits::eStorage);
@@ -479,7 +480,7 @@ void HelloVulkan::createOffscreenRender() {
 
     // Creating the depth buffer
     auto depthCreateInfo =
-        nvvk::makeImage2DCreateInfo(m_size, m_offscreenDepthFormat,
+        nvvk::makeImage2DCreateInfo(window_size_, m_offscreenDepthFormat,
                                     vk::ImageUsageFlagBits::eDepthStencilAttachment);
     {
         nvvk::Image image = m_alloc.createImage(depthCreateInfo);
@@ -495,7 +496,7 @@ void HelloVulkan::createOffscreenRender() {
 
     // Setting the image layout for both color and depth
     {
-        nvvk::CommandPool genCmdBuf(m_device, m_graphicsQueueIndex);
+        nvvk::CommandPool genCmdBuf(device_, graphics_queue_index_);
         auto              cmdBuf = genCmdBuf.createCommandBuffer();
         nvvk::cmdBarrierImageLayout(cmdBuf, m_offscreenColor.image, vk::ImageLayout::eUndefined,
                                     vk::ImageLayout::eGeneral);
@@ -509,7 +510,7 @@ void HelloVulkan::createOffscreenRender() {
     // Creating a renderpass for the offscreen
     if (!m_offscreenRenderPass) {
         m_offscreenRenderPass =
-            nvvk::createRenderPass(m_device, {m_offscreenColorFormat}, m_offscreenDepthFormat, 1,
+            nvvk::createRenderPass(device_, {m_offscreenColorFormat}, m_offscreenDepthFormat, 1,
                                    true, true, vk::ImageLayout::eGeneral,
                                    vk::ImageLayout::eGeneral);
     }
@@ -518,15 +519,15 @@ void HelloVulkan::createOffscreenRender() {
     std::vector<vk::ImageView> attachments = {m_offscreenColor.descriptor.imageView,
                                               m_offscreenDepth.descriptor.imageView};
 
-    m_device.destroy(m_offscreenFramebuffer);
+    device_.destroy(m_offscreenFramebuffer);
     vk::FramebufferCreateInfo info;
     info.setRenderPass(m_offscreenRenderPass);
     info.setAttachmentCount(2);
     info.setPAttachments(attachments.data());
-    info.setWidth(m_size.width);
-    info.setHeight(m_size.height);
+    info.setWidth(window_size_.width);
+    info.setHeight(window_size_.height);
     info.setLayers(1);
-    m_offscreenFramebuffer = m_device.createFramebuffer(info);
+    m_offscreenFramebuffer = device_.createFramebuffer(info);
 }
 
 //--------------------------------------------------------------------------------------------------
@@ -543,13 +544,13 @@ void HelloVulkan::createPostPipeline() {
     pipelineLayoutCreateInfo.setPSetLayouts(&m_postDescSetLayout);
     pipelineLayoutCreateInfo.setPushConstantRangeCount(1);
     pipelineLayoutCreateInfo.setPPushConstantRanges(&pushConstantRanges);
-    m_postPipelineLayout = m_device.createPipelineLayout(pipelineLayoutCreateInfo);
+    m_postPipelineLayout = device_.createPipelineLayout(pipelineLayoutCreateInfo);
 
     // Pipeline: completely generic, no vertices
     std::vector<std::string> paths = defaultSearchPaths;
 
-    nvvk::GraphicsPipelineGeneratorCombined pipelineGenerator(m_device, m_postPipelineLayout,
-                                                              m_renderPass);
+    nvvk::GraphicsPipelineGeneratorCombined pipelineGenerator(device_, m_postPipelineLayout,
+                                                              render_pass_);
     pipelineGenerator.addShader(nvh::loadFile("shaders/passthrough.vert.spv", true, paths),
                                 vk::ShaderStageFlagBits::eVertex);
     pipelineGenerator.addShader(nvh::loadFile("shaders/post.frag.spv", true, paths),
@@ -569,9 +570,9 @@ void HelloVulkan::createPostDescriptor() {
     using vkSS = vk::ShaderStageFlagBits;
 
     m_postDescSetLayoutBind.addBinding(vkDS(0, vkDT::eCombinedImageSampler, 1, vkSS::eFragment));
-    m_postDescSetLayout = m_postDescSetLayoutBind.createLayout(m_device);
-    m_postDescPool      = m_postDescSetLayoutBind.createPool(m_device);
-    m_postDescSet = nvvk::allocateDescriptorSet(m_device, m_postDescPool, m_postDescSetLayout);
+    m_postDescSetLayout = m_postDescSetLayoutBind.createLayout(device_);
+    m_postDescPool      = m_postDescSetLayoutBind.createPool(device_);
+    m_postDescSet = nvvk::allocateDescriptorSet(device_, m_postDescPool, m_postDescSetLayout);
 }
 
 //--------------------------------------------------------------------------------------------------
@@ -580,7 +581,7 @@ void HelloVulkan::createPostDescriptor() {
 void HelloVulkan::updatePostDescriptorSet() {
     vk::WriteDescriptorSet writeDescriptorSets =
         m_postDescSetLayoutBind.makeWrite(m_postDescSet, 0, &m_offscreenColor.descriptor);
-    m_device.updateDescriptorSets(writeDescriptorSets, nullptr);
+    device_.updateDescriptorSets(writeDescriptorSets, nullptr);
 }
 
 //--------------------------------------------------------------------------------------------------
@@ -589,10 +590,10 @@ void HelloVulkan::updatePostDescriptorSet() {
 void HelloVulkan::drawPost(vk::CommandBuffer cmdBuf) {
     m_debug.beginLabel(cmdBuf, "Post");
 
-    cmdBuf.setViewport(0, {vk::Viewport(0, 0, (float)m_size.width, (float)m_size.height, 0, 1)});
-    cmdBuf.setScissor(0, {{{0, 0}, {m_size.width, m_size.height}}});
+    cmdBuf.setViewport(0, {vk::Viewport(0, 0, (float)window_size_.width, (float)window_size_.height, 0, 1)});
+    cmdBuf.setScissor(0, {{{0, 0}, {window_size_.width, window_size_.height}}});
 
-    auto aspectRatio = static_cast<float>(m_size.width) / static_cast<float>(m_size.height);
+    auto aspectRatio = static_cast<float>(window_size_.width) / static_cast<float>(window_size_.height);
     cmdBuf.pushConstants<float>(m_postPipelineLayout, vk::ShaderStageFlagBits::eFragment, 0,
                                 aspectRatio);
     cmdBuf.bindPipeline(vk::PipelineBindPoint::eGraphics, m_postPipeline);
@@ -612,10 +613,10 @@ void HelloVulkan::drawPost(vk::CommandBuffer cmdBuf) {
 // #VKRay
 void HelloVulkan::initRayTracing() {
     // Requesting ray tracing properties
-    auto properties = m_physicalDevice.getProperties2<vk::PhysicalDeviceProperties2,
-                                                      vk::PhysicalDeviceRayTracingPropertiesKHR>();
+    auto properties = gpu_.getProperties2<vk::PhysicalDeviceProperties2,
+                                          vk::PhysicalDeviceRayTracingPropertiesKHR>();
     m_rtProperties  = properties.get<vk::PhysicalDeviceRayTracingPropertiesKHR>();
-    m_rtBuilder.setup(m_device, &m_alloc, m_graphicsQueueIndex);
+    m_rtBuilder.setup(device_, &m_alloc, graphics_queue_index_);
 }
 
 //--------------------------------------------------------------------------------------------------
@@ -630,8 +631,8 @@ nvvk::RaytracingBuilderKHR::Blas HelloVulkan::objectToVkGeometryKHR(const ObjMod
     asCreate.setMaxVertexCount(model.nbVertices);
     asCreate.setAllowsTransforms(VK_FALSE);  // No adding transformation matrices
 
-    vk::DeviceAddress vertexAddress = m_device.getBufferAddress({model.vertexBuffer.buffer});
-    vk::DeviceAddress indexAddress  = m_device.getBufferAddress({model.indexBuffer.buffer});
+    vk::DeviceAddress vertexAddress = device_.getBufferAddress({model.vertexBuffer.buffer});
+    vk::DeviceAddress indexAddress  = device_.getBufferAddress({model.indexBuffer.buffer});
     vk::AccelerationStructureGeometryTrianglesDataKHR triangles;
     triangles.setVertexFormat(asCreate.vertexFormat);
     triangles.setVertexData(vertexAddress);
@@ -672,7 +673,7 @@ nvvk::RaytracingBuilderKHR::Blas HelloVulkan::sphereToVkGeometryKHR() {
     asCreate.setAllowsTransforms(VK_FALSE);  // No adding transformation matrices
 
 
-    vk::DeviceAddress dataAddress = m_device.getBufferAddress({m_spheresAabbBuffer.buffer});
+    vk::DeviceAddress dataAddress = device_.getBufferAddress({m_spheresAabbBuffer.buffer});
     vk::AccelerationStructureGeometryAabbsDataKHR aabbs;
     aabbs.setData(dataAddress);
     aabbs.setStride(sizeof(Aabb));
@@ -725,11 +726,11 @@ void HelloVulkan::createSpheres() {
 
     // Creating two materials
     MaterialObj mat;
-    mat.diffuse = vec3f(0, 1, 1);
+    mat.diffuse = nvmath::vec3f(0, 1, 1);
     std::vector<MaterialObj> materials;
     std::vector<int>         matIdx;
     materials.emplace_back(mat);
-    mat.diffuse = vec3f(1, 1, 0);
+    mat.diffuse = nvmath::vec3f(1, 1, 0);
     materials.emplace_back(mat);
 
     // Assign a material to each sphere
@@ -739,7 +740,7 @@ void HelloVulkan::createSpheres() {
 
     // Creating all buffers
     using vkBU = vk::BufferUsageFlagBits;
-    nvvk::CommandPool genCmdBuf(m_device, m_graphicsQueueIndex);
+    nvvk::CommandPool genCmdBuf(device_, graphics_queue_index_);
     auto              cmdBuf = genCmdBuf.createCommandBuffer();
     m_spheresBuffer          = m_alloc.createBuffer(cmdBuf, m_spheres, vkBU::eStorageBuffer);
     m_spheresAabbBuffer      = m_alloc.createBuffer(cmdBuf, aabbs, vkBU::eShaderDeviceAddress);
@@ -814,9 +815,9 @@ void HelloVulkan::createRtDescriptorSet() {
     m_rtDescSetLayoutBind.addBinding(
         vkDSLB(1, vkDT::eStorageImage, 1, vkSS::eRaygenKHR));  // Output image
 
-    m_rtDescPool      = m_rtDescSetLayoutBind.createPool(m_device);
-    m_rtDescSetLayout = m_rtDescSetLayoutBind.createLayout(m_device);
-    m_rtDescSet       = m_device.allocateDescriptorSets({m_rtDescPool, 1, &m_rtDescSetLayout})[0];
+    m_rtDescPool      = m_rtDescSetLayoutBind.createPool(device_);
+    m_rtDescSetLayout = m_rtDescSetLayoutBind.createLayout(device_);
+    m_rtDescSet       = device_.allocateDescriptorSets({m_rtDescPool, 1, &m_rtDescSetLayout})[0];
 
     vk::AccelerationStructureKHR                   tlas = m_rtBuilder.getAccelerationStructure();
     vk::WriteDescriptorSetAccelerationStructureKHR descASInfo;
@@ -828,7 +829,7 @@ void HelloVulkan::createRtDescriptorSet() {
     std::vector<vk::WriteDescriptorSet> writes;
     writes.emplace_back(m_rtDescSetLayoutBind.makeWrite(m_rtDescSet, 0, &descASInfo));
     writes.emplace_back(m_rtDescSetLayoutBind.makeWrite(m_rtDescSet, 1, &imageInfo));
-    m_device.updateDescriptorSets(static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
+    device_.updateDescriptorSets(static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
 }
 
 
@@ -843,7 +844,7 @@ void HelloVulkan::updateRtDescriptorSet() {
     vk::DescriptorImageInfo imageInfo{
         {}, m_offscreenColor.descriptor.imageView, vk::ImageLayout::eGeneral};
     vk::WriteDescriptorSet wds{m_rtDescSet, 1, 0, 1, vkDT::eStorageImage, &imageInfo};
-    m_device.updateDescriptorSets(wds, nullptr);
+    device_.updateDescriptorSets(wds, nullptr);
 }
 
 
@@ -854,16 +855,16 @@ void HelloVulkan::createRtPipeline() {
     std::vector<std::string> paths = defaultSearchPaths;
 
     vk::ShaderModule raygenSM =
-        nvvk::createShaderModule(m_device,  //
+        nvvk::createShaderModule(device_,  //
                                  nvh::loadFile("shaders/raytrace.rgen.spv", true, paths));
     vk::ShaderModule missSM =
-        nvvk::createShaderModule(m_device,  //
+        nvvk::createShaderModule(device_,  //
                                  nvh::loadFile("shaders/raytrace.rmiss.spv", true, paths));
 
     // The second miss shader is invoked when a shadow ray misses the geometry. It
     // simply indicates that no occlusion has been found
     vk::ShaderModule shadowmissSM =
-        nvvk::createShaderModule(m_device,
+        nvvk::createShaderModule(device_,
                                  nvh::loadFile("shaders/raytraceShadow.rmiss.spv", true, paths));
 
 
@@ -890,7 +891,7 @@ void HelloVulkan::createRtPipeline() {
 
     // Hit Group0 - Closest Hit
     vk::ShaderModule chitSM =
-        nvvk::createShaderModule(m_device,  //
+        nvvk::createShaderModule(device_,  //
                                  nvh::loadFile("shaders/raytrace.rchit.spv", true, paths));
 
     {
@@ -904,10 +905,10 @@ void HelloVulkan::createRtPipeline() {
 
     // Hit Group1 - Closest Hit + Intersection (procedural)
     vk::ShaderModule chit2SM =
-        nvvk::createShaderModule(m_device,  //
+        nvvk::createShaderModule(device_,  //
                                  nvh::loadFile("shaders/raytrace2.rchit.spv", true, paths));
     vk::ShaderModule rintSM =
-        nvvk::createShaderModule(m_device,  //
+        nvvk::createShaderModule(device_,  //
                                  nvh::loadFile("shaders/raytrace.rint.spv", true, paths));
     {
         vk::RayTracingShaderGroupCreateInfoKHR hg{
@@ -935,7 +936,7 @@ void HelloVulkan::createRtPipeline() {
     pipelineLayoutCreateInfo.setSetLayoutCount(static_cast<uint32_t>(rtDescSetLayouts.size()));
     pipelineLayoutCreateInfo.setPSetLayouts(rtDescSetLayouts.data());
 
-    m_rtPipelineLayout = m_device.createPipelineLayout(pipelineLayoutCreateInfo);
+    m_rtPipelineLayout = device_.createPipelineLayout(pipelineLayoutCreateInfo);
 
     // Assemble the shader stages and recursion depth info into the ray tracing pipeline
     vk::RayTracingPipelineCreateInfoKHR rayPipelineInfo;
@@ -948,14 +949,14 @@ void HelloVulkan::createRtPipeline() {
 
     rayPipelineInfo.setMaxRecursionDepth(2);  // Ray depth
     rayPipelineInfo.setLayout(m_rtPipelineLayout);
-    m_rtPipeline = m_device.createRayTracingPipelineKHR({}, rayPipelineInfo).value;
+    m_rtPipeline = device_.createRayTracingPipelineKHR({}, rayPipelineInfo).value;
 
-    m_device.destroy(raygenSM);
-    m_device.destroy(missSM);
-    m_device.destroy(shadowmissSM);
-    m_device.destroy(chitSM);
-    m_device.destroy(chit2SM);
-    m_device.destroy(rintSM);
+    device_.destroy(raygenSM);
+    device_.destroy(missSM);
+    device_.destroy(shadowmissSM);
+    device_.destroy(chitSM);
+    device_.destroy(chit2SM);
+    device_.destroy(rintSM);
 }
 
 //--------------------------------------------------------------------------------------------------
@@ -974,10 +975,10 @@ void HelloVulkan::createRtShaderBindingTable() {
     uint32_t sbtSize = groupCount * groupHandleSize;
 
     std::vector<uint8_t> shaderHandleStorage(sbtSize);
-    m_device.getRayTracingShaderGroupHandlesKHR(m_rtPipeline, 0, groupCount, sbtSize,
+    device_.getRayTracingShaderGroupHandlesKHR(m_rtPipeline, 0, groupCount, sbtSize,
                                                 shaderHandleStorage.data());
     // Write the handles in the SBT
-    nvvk::CommandPool genCmdBuf(m_device, m_graphicsQueueIndex);
+    nvvk::CommandPool genCmdBuf(device_, graphics_queue_index_);
     vk::CommandBuffer cmdBuf = genCmdBuf.createCommandBuffer();
 
     m_rtSBTBuffer =
@@ -1026,7 +1027,7 @@ void HelloVulkan::raytrace(const vk::CommandBuffer& cmdBuf, const nvmath::vec4f&
     const vk::StridedBufferRegionKHR callableShaderBindingTable;
     cmdBuf.traceRaysKHR(&raygenShaderBindingTable, &missShaderBindingTable, &hitShaderBindingTable,
                         &callableShaderBindingTable,      //
-                        m_size.width, m_size.height, 1);  //
+                        window_size_.width, window_size_.height, 1);  //
 
 
     m_debug.endLabel(cmdBuf);

@@ -1,4 +1,5 @@
-﻿BasedOnStyle: LLVM
+﻿BasedOnStyle: Google
+
 AccessModifierOffset: '-2'
 AlignAfterOpenBracket: Align
 AlignConsecutiveAssignments: 'true'
@@ -15,7 +16,7 @@ AlwaysBreakAfterReturnType: None
 AlwaysBreakBeforeMultilineStrings: 'true'
 AlwaysBreakTemplateDeclarations: 'true'
 BinPackArguments: 'true'
-BinPackParameters: 'false'
+BinPackParameters: 'true'
 ExperimentalAutoDetectBinPacking: 'false'
 BreakBeforeBinaryOperators: NonAssignment
 BreakBeforeBraces: Custom
@@ -49,10 +50,10 @@ ReflowComments: 'false'
 BraceWrapping: {
  AfterClass: 'true'
  AfterControlStatement: 'false'
- AfterEnum: 'true'
- AfterFunction: 'true'
+ AfterEnum: 'false'
+ AfterFunction: 'false'
  AfterNamespace: 'false' 
- AfterStruct: 'true'
+ AfterStruct: 'false'
  AfterUnion: 'true'
  BeforeCatch: 'false'
  BeforeElse: 'false'

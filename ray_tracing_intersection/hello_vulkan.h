@@ -30,10 +30,10 @@
 
 #define NVVK_ALLOC_DEDICATED
 #include "nvvk/allocator_vk.hpp"
-#include "nvvk/appbase_vkpp.hpp"
+//#include "nvvk/appbase_vkpp.hpp"
 #include "nvvk/debug_util_vk.hpp"
 #include "nvvk/descriptorsets_vk.hpp"
-
+#include "vk_appbase.h"
 // #VKRay
 #include "nvvk/raytraceKHR_vk.hpp"
 
@@ -44,10 +44,10 @@
 // - Rendering is done in an offscreen framebuffer
 // - The image of the framebuffer is displayed in post-process in a full-screen quad
 //
-class HelloVulkan : public nvvk::AppBase
+class HelloVulkan : public vkpbr::AppBase
 {
   public:
-    void setup(const vk::Instance&       instance,
+    void Setup(const vk::Instance&       instance,
                const vk::Device&         device,
                const vk::PhysicalDevice& physicalDevice,
                u32                  queueFamily) override;
@@ -60,7 +60,7 @@ class HelloVulkan : public nvvk::AppBase
     void createTextureImages(const vk::CommandBuffer&        cmdBuf,
                              const std::vector<std::string>& textures);
     void updateUniformBuffer();
-    void onResize(int /*w*/, int /*h*/) override;
+    void WindowResizeCallback(int /*w*/, int /*h*/) override;
     void destroyResources();
     void rasterize(const vk::CommandBuffer& cmdBuff);
 
@@ -82,7 +82,7 @@ class HelloVulkan : public nvvk::AppBase
         uint32_t      txtOffset{0};    // Offset in `m_textures`
         nvmath::mat4f transform{1};    // Position of the instance
         nvmath::mat4f transformIT{1};  // Inverse transpose
-        mat4f dummy;
+        nvmath::mat4f dummy;
     };
 
     // Information pushed at each draw call

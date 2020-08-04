@@ -152,21 +152,21 @@ int main(int argc, char** argv)
     HelloVulkan helloVk;
 
     // Shares the camera with the app.
-    helloVk.setCamera(camera_navigator);
+    helloVk.SetCameraNavigator(camera_navigator);
 
     // Window need to be opened to get the surface on which to draw
-    const vk::SurfaceKHR surface = helloVk.getVkSurface(vkctx.m_instance, window);
+    const vk::SurfaceKHR surface = helloVk.AcquireSurface(vkctx.m_instance, window);
     vkctx.setGCTQueueWithPresent(surface);
 
-    helloVk.setup(vkctx.m_instance, vkctx.m_device, vkctx.m_physicalDevice,
+    helloVk.Setup(vkctx.m_instance, vkctx.m_device, vkctx.m_physicalDevice,
                   vkctx.m_queueGCT.familyIndex);
-    helloVk.createSurface(surface, SAMPLE_WIDTH, SAMPLE_HEIGHT);
-    helloVk.createDepthBuffer();
-    helloVk.createRenderPass();
-    helloVk.createFrameBuffers();
+    helloVk.MakeSurface(surface, SAMPLE_WIDTH, SAMPLE_HEIGHT);
+    helloVk.MakeDepthBuffer();
+    helloVk.MakeRenderPass();
+    helloVk.MakeFrameBuffers();
 
     // Setup Imgui
-    helloVk.initGUI(0);  // Using sub-pass 0
+    helloVk.InitGui(0);  // Using sub-pass 0
 
     // Creation of the example
     //  helloVk.loadModel(nvh::findFile("media/scenes/Medieval_building.obj", defaultSearchPaths));
@@ -197,13 +197,13 @@ int main(int argc, char** argv)
     bool          useRaytracer = true;
 
 
-    helloVk.setupGlfwCallbacks(window);
+    helloVk.SetupGlfwCallbacks();
     ImGui_ImplGlfw_InitForVulkan(window, true);
 
     // Main loop
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
-        if (helloVk.isMinimized())
+        if (helloVk.IsMinimized(/*sleep_if_so=*/true))
             continue;
 
         // Start the Dear ImGui frame
@@ -250,11 +250,11 @@ int main(int argc, char** argv)
         }
 
         // Start rendering the scene
-        helloVk.prepareFrame();
+        helloVk.PrepareFrame();
 
         // Start command buffer of this frame
-        auto                     curFrame = helloVk.getCurFrame();
-        const vk::CommandBuffer& cmdBuff  = helloVk.getCommandBuffers()[curFrame];
+        auto                     curFrame = helloVk.CurrentFrameIndex();
+        const vk::CommandBuffer& cmdBuff  = helloVk.cmd_buffers()[curFrame];
 
         cmdBuff.begin({vk::CommandBufferUsageFlagBits::eOneTimeSubmit});
 
@@ -271,7 +271,7 @@ int main(int argc, char** argv)
             offscreenRenderPassBeginInfo.setPClearValues(clearValues);
             offscreenRenderPassBeginInfo.setRenderPass(helloVk.m_offscreenRenderPass);
             offscreenRenderPassBeginInfo.setFramebuffer(helloVk.m_offscreenFramebuffer);
-            offscreenRenderPassBeginInfo.setRenderArea({{}, helloVk.getSize()});
+            offscreenRenderPassBeginInfo.setRenderArea({{}, helloVk.window_size()});
 
             // Rendering Scene
             if (useRaytracer) {
@@ -288,9 +288,9 @@ int main(int argc, char** argv)
             vk::RenderPassBeginInfo postRenderPassBeginInfo;
             postRenderPassBeginInfo.setClearValueCount(2);
             postRenderPassBeginInfo.setPClearValues(clearValues);
-            postRenderPassBeginInfo.setRenderPass(helloVk.getRenderPass());
-            postRenderPassBeginInfo.setFramebuffer(helloVk.getFramebuffers()[curFrame]);
-            postRenderPassBeginInfo.setRenderArea({{}, helloVk.getSize()});
+            postRenderPassBeginInfo.setRenderPass(helloVk.render_pass());
+            postRenderPassBeginInfo.setFramebuffer(helloVk.framebuffers()[curFrame]);
+            postRenderPassBeginInfo.setRenderArea({{}, helloVk.window_size()});
 
             cmdBuff.beginRenderPass(postRenderPassBeginInfo, vk::SubpassContents::eInline);
             // Rendering tonemapper
@@ -302,13 +302,13 @@ int main(int argc, char** argv)
 
         // Submit for display
         cmdBuff.end();
-        helloVk.submitFrame();
+        helloVk.SubmitFrame();
     }
 
     // Cleanup
-    helloVk.getDevice().waitIdle();
+    helloVk.device().waitIdle();
     helloVk.destroyResources();
-    helloVk.destroy();
+    helloVk.UnloadContext();
 
     vkctx.deinit();
 
