@@ -91,10 +91,6 @@ int main(int argc, char** argv)
     camera_navigator->SetWindowSize(SAMPLE_WIDTH, SAMPLE_HEIGHT);
     camera_navigator->SetLookAt(glm::vec3(20, 20, 20), glm::vec3(0, 1, 0), glm::vec3(0, 1, 0));
 
-    //CameraManip.setWindowSize(SAMPLE_WIDTH, SAMPLE_HEIGHT);
-    //CameraManip.setLookat(nvmath::vec3f(20, 20, 20), nvmath::vec3f(0, 1, 0),
-    //                      nvmath::vec3f(0, 1, 0));
-
     // Setup Vulkan
     if (!glfwVulkanSupported()) {
         printf("GLFW: Vulkan Not Supported\n");
@@ -170,15 +166,15 @@ int main(int argc, char** argv)
 
     // Creation of the example
     //  helloVk.loadModel(nvh::findFile("media/scenes/Medieval_building.obj", defaultSearchPaths));
-    helloVk.loadModel(nvh::findFile("media/scenes/plane.obj", defaultSearchPaths));
+    helloVk.LoadModel(nvh::findFile("media/scenes/plane.obj", defaultSearchPaths));
     helloVk.createSpheres();
 
     helloVk.createOffscreenRender();
-    helloVk.createDescriptorSetLayout();
-    helloVk.createGraphicsPipeline();
-    helloVk.createUniformBuffer();
-    helloVk.createSceneDescriptionBuffer();
-    helloVk.updateDescriptorSet();
+    helloVk.BuildDescriptorSetLayout();
+    helloVk.BuildGraphicsPipeline();
+    helloVk.BuildUniformBuffer();
+    helloVk.BuildSceneDescriptionBuffer();
+    helloVk.UpdateDescriptorSet();
 
     // #VKRay
     helloVk.initRayTracing();
@@ -211,7 +207,7 @@ int main(int argc, char** argv)
         ImGui::NewFrame();
 
         // Updating camera buffer
-        helloVk.updateUniformBuffer();
+        helloVk.UpdateUniformBuffer();
 
         // Show UI window.
         if (1 == 1) {

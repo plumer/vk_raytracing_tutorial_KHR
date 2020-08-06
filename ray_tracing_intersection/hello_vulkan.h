@@ -30,10 +30,8 @@
 
 #define NVVK_ALLOC_DEDICATED
 #include "nvvk/allocator_vk.hpp"
-//#include "nvvk/appbase_vkpp.hpp"
-#include "nvvk/debug_util_vk.hpp"
-#include "nvvk/descriptorsets_vk.hpp"
 #include "vk_appbase.h"
+#include "vk_utils.h"
 // #VKRay
 #include "nvvk/raytraceKHR_vk.hpp"
 
@@ -47,26 +45,23 @@
 class HelloVulkan : public vkpbr::AppBase
 {
   public:
-    void Setup(const vk::Instance&       instance,
-               const vk::Device&         device,
-               const vk::PhysicalDevice& physicalDevice,
-               u32                  queueFamily) override;
-    void createDescriptorSetLayout();
-    void createGraphicsPipeline();
-    void loadModel(const std::string& filename, nvmath::mat4f transform = nvmath::mat4f(1));
-    void updateDescriptorSet();
-    void createUniformBuffer();
-    void createSceneDescriptionBuffer();
-    void createTextureImages(const vk::CommandBuffer&        cmdBuf,
-                             const std::vector<std::string>& textures);
-    void updateUniformBuffer();
+    void Setup(const vk::Instance& instance, const vk::Device& device,
+               const vk::PhysicalDevice& physicalDevice, u32 queueFamily) override;
+    void BuildDescriptorSetLayout();
+    void BuildGraphicsPipeline();
+    void LoadModel(const std::string& filename, nvmath::mat4f transform = nvmath::mat4f(1));
+    void UpdateDescriptorSet();
+    void BuildUniformBuffer();
+    void BuildSceneDescriptionBuffer();
+    void BuildTextureImages(const vk::CommandBuffer&        cmdBuf,
+                            const std::vector<std::string>& textures);
+    void UpdateUniformBuffer();
     void WindowResizeCallback(int /*w*/, int /*h*/) override;
     void destroyResources();
     void rasterize(const vk::CommandBuffer& cmdBuff);
 
     // The OBJ model
-    struct ObjModel
-    {
+    struct ObjModel {
         uint32_t     nbIndices{0};
         uint32_t     nbVertices{0};
         nvvk::Buffer vertexBuffer;    // Device buffer of all 'Vertex'
@@ -76,8 +71,7 @@ class HelloVulkan : public vkpbr::AppBase
     };
 
     // Instance of the OBJ
-    struct ObjInstance
-    {
+    struct ObjInstance {
         uint32_t      objIndex{0};     // Reference to the `m_objModel`
         uint32_t      txtOffset{0};    // Offset in `m_textures`
         nvmath::mat4f transform{1};    // Position of the instance
@@ -86,8 +80,7 @@ class HelloVulkan : public vkpbr::AppBase
     };
 
     // Information pushed at each draw call
-    struct ObjPushConstant
-    {
+    struct ObjPushConstant {
         nvmath::vec3f lightPosition{10.f, 15.f, 8.f};
         int           instanceId{0};  // To retrieve the transformation matrix
         float         lightIntensity{100.f};
@@ -100,12 +93,12 @@ class HelloVulkan : public vkpbr::AppBase
     std::vector<ObjInstance> m_objInstance;
 
     // Graphic pipeline
-    vk::PipelineLayout          m_pipelineLayout;
-    vk::Pipeline                m_graphicsPipeline;
-    nvvk::DescriptorSetBindings m_descSetLayoutBind;
-    vk::DescriptorPool          m_descPool;
-    vk::DescriptorSetLayout     m_descSetLayout;
-    vk::DescriptorSet           m_descSet;
+    vk::PipelineLayout           m_pipelineLayout;
+    vk::Pipeline                 m_graphicsPipeline;
+    vkpbr::DescriptorSetBindings DS_layout_bindings_;
+    vk::DescriptorPool           m_descPool;
+    vk::DescriptorSetLayout      m_descSetLayout;
+    vk::DescriptorSet            m_descSet;
 
     nvvk::Buffer               m_cameraMat;  // Device-Host of the camera matrices
     nvvk::Buffer               m_sceneDesc;  // Device buffer of the OBJ instances
@@ -121,18 +114,18 @@ class HelloVulkan : public vkpbr::AppBase
     void updatePostDescriptorSet();
     void drawPost(vk::CommandBuffer cmdBuf);
 
-    nvvk::DescriptorSetBindings m_postDescSetLayoutBind;
-    vk::DescriptorPool          m_postDescPool;
-    vk::DescriptorSetLayout     m_postDescSetLayout;
-    vk::DescriptorSet           m_postDescSet;
-    vk::Pipeline                m_postPipeline;
-    vk::PipelineLayout          m_postPipelineLayout;
-    vk::RenderPass              m_offscreenRenderPass;
-    vk::Framebuffer             m_offscreenFramebuffer;
-    nvvk::Texture               m_offscreenColor;
-    vk::Format                  m_offscreenColorFormat{vk::Format::eR32G32B32A32Sfloat};
-    nvvk::Texture               m_offscreenDepth;
-    vk::Format                  m_offscreenDepthFormat{vk::Format::eD32Sfloat};
+    vkpbr::DescriptorSetBindings post_DS_layout_bindings_;
+    vk::DescriptorPool           m_postDescPool;
+    vk::DescriptorSetLayout      m_postDescSetLayout;
+    vk::DescriptorSet            m_postDescSet;
+    vk::Pipeline                 m_postPipeline;
+    vk::PipelineLayout           m_postPipelineLayout;
+    vk::RenderPass               m_offscreenRenderPass;
+    vk::Framebuffer              m_offscreenFramebuffer;
+    nvvk::Texture                m_offscreenColor;
+    vk::Format                   m_offscreenColorFormat{vk::Format::eR32G32B32A32Sfloat};
+    nvvk::Texture                m_offscreenDepth;
+    vk::Format                   m_offscreenDepthFormat{vk::Format::eD32Sfloat};
 
     // #VKRay
     void                             initRayTracing();
@@ -148,7 +141,7 @@ class HelloVulkan : public vkpbr::AppBase
 
     vk::PhysicalDeviceRayTracingPropertiesKHR           m_rtProperties;
     nvvk::RaytracingBuilderKHR                          m_rtBuilder;
-    nvvk::DescriptorSetBindings                         m_rtDescSetLayoutBind;
+    vkpbr::DescriptorSetBindings                        rt_DS_layout_bindings_;
     vk::DescriptorPool                                  m_rtDescPool;
     vk::DescriptorSetLayout                             m_rtDescSetLayout;
     vk::DescriptorSet                                   m_rtDescSet;
@@ -157,8 +150,7 @@ class HelloVulkan : public vkpbr::AppBase
     vk::Pipeline                                        m_rtPipeline;
     nvvk::Buffer                                        m_rtSBTBuffer;
 
-    struct RtPushConstant
-    {
+    struct RtPushConstant {
         nvmath::vec4f clearColor;
         nvmath::vec3f lightPosition;
         float         lightIntensity;
@@ -166,14 +158,12 @@ class HelloVulkan : public vkpbr::AppBase
     } m_rtPushConstants;
 
 
-    struct Sphere
-    {
+    struct Sphere {
         nvmath::vec3f center;
         float         radius;
     };
 
-    struct Aabb
-    {
+    struct Aabb {
         nvmath::vec3f minimum;
         nvmath::vec3f maximum;
     };

@@ -68,7 +68,7 @@ void HelloVulkan::Setup(const vk::Instance& instance, const vk::Device& device,
 //--------------------------------------------------------------------------------------------------
 // Called at each frame to update the camera matrix
 //
-void HelloVulkan::updateUniformBuffer() {
+void HelloVulkan::UpdateUniformBuffer() {
     //CameraManip.updateAnim();
     camera_navigator_->UpdateAnimation();
     const float aspectRatio = window_size_.width / static_cast<float>(window_size_.height);
@@ -94,7 +94,7 @@ void HelloVulkan::updateUniformBuffer() {
 //--------------------------------------------------------------------------------------------------
 // Describing the layout pushed when rendering
 //
-void HelloVulkan::createDescriptorSetLayout() {
+void HelloVulkan::BuildDescriptorSetLayout() {
     using vkDS     = vk::DescriptorSetLayoutBinding;
     using vkDT     = vk::DescriptorType;
     using vkSS     = vk::ShaderStageFlagBits;
@@ -102,47 +102,47 @@ void HelloVulkan::createDescriptorSetLayout() {
     uint32_t nbObj = static_cast<uint32_t>(m_objModel.size());
 
     // Camera matrices (binding = 0)
-    m_descSetLayoutBind.addBinding(
+    DS_layout_bindings_.AddBinding(
         vkDS(0, vkDT::eUniformBuffer, 1, vkSS::eVertex | vkSS::eRaygenKHR));
     // Materials (binding = 1)
-    m_descSetLayoutBind.addBinding(vkDS(1, vkDT::eStorageBuffer, nbObj + 1,
+    DS_layout_bindings_.AddBinding(vkDS(1, vkDT::eStorageBuffer, nbObj + 1,
                                         vkSS::eVertex | vkSS::eFragment | vkSS::eClosestHitKHR));
     // Scene description (binding = 2)
-    m_descSetLayoutBind.addBinding(  //
+    DS_layout_bindings_.AddBinding(  //
         vkDS(2, vkDT::eStorageBuffer, 1, vkSS::eVertex | vkSS::eFragment | vkSS::eClosestHitKHR));
     // Textures (binding = 3)
-    m_descSetLayoutBind.addBinding(
+    DS_layout_bindings_.AddBinding(
         vkDS(3, vkDT::eCombinedImageSampler, nbTxt, vkSS::eFragment | vkSS::eClosestHitKHR));
     // Materials Index (binding = 4)
-    m_descSetLayoutBind.addBinding(
+    DS_layout_bindings_.AddBinding(
         vkDS(4, vkDT::eStorageBuffer, nbObj + 1, vkSS::eFragment | vkSS::eClosestHitKHR));
     // Storing vertices (binding = 5)
-    m_descSetLayoutBind.addBinding(  //
+    DS_layout_bindings_.AddBinding(  //
         vkDS(5, vkDT::eStorageBuffer, nbObj, vkSS::eClosestHitKHR));
     // Storing indices (binding = 6)
-    m_descSetLayoutBind.addBinding(  //
+    DS_layout_bindings_.AddBinding(  //
         vkDS(6, vkDT::eStorageBuffer, nbObj, vkSS::eClosestHitKHR));
     // Storing spheres (binding = 7)
-    m_descSetLayoutBind.addBinding(  //
+    DS_layout_bindings_.AddBinding(  //
         vkDS(7, vkDT::eStorageBuffer, 1, vkSS::eClosestHitKHR | vkSS::eIntersectionKHR));
 
 
-    m_descSetLayout = m_descSetLayoutBind.createLayout(device_);
-    m_descPool      = m_descSetLayoutBind.createPool(device_, 1);
+    m_descSetLayout = DS_layout_bindings_.MakeLayout(device_);
+    m_descPool      = DS_layout_bindings_.MakePool(device_, 1);
     m_descSet       = nvvk::allocateDescriptorSet(device_, m_descPool, m_descSetLayout);
 }
 
 //--------------------------------------------------------------------------------------------------
 // Setting up the buffers in the descriptor set
 //
-void HelloVulkan::updateDescriptorSet() {
+void HelloVulkan::UpdateDescriptorSet() {
     std::vector<vk::WriteDescriptorSet> writes;
 
     // Camera matrices and scene description
     vk::DescriptorBufferInfo dbiUnif{m_cameraMat.buffer, 0, VK_WHOLE_SIZE};
-    writes.emplace_back(m_descSetLayoutBind.makeWrite(m_descSet, 0, &dbiUnif));
+    writes.emplace_back(DS_layout_bindings_.MakeWrite(m_descSet, 0, &dbiUnif));
     vk::DescriptorBufferInfo dbiSceneDesc{m_sceneDesc.buffer, 0, VK_WHOLE_SIZE};
-    writes.emplace_back(m_descSetLayoutBind.makeWrite(m_descSet, 2, &dbiSceneDesc));
+    writes.emplace_back(DS_layout_bindings_.MakeWrite(m_descSet, 2, &dbiSceneDesc));
 
     // All material buffers, 1 buffer per OBJ
     std::vector<vk::DescriptorBufferInfo> dbiMat;
@@ -158,20 +158,20 @@ void HelloVulkan::updateDescriptorSet() {
     dbiMat.emplace_back(m_spheresMatColorBuffer.buffer, 0, VK_WHOLE_SIZE);
     dbiMatIdx.emplace_back(m_spheresMatIndexBuffer.buffer, 0, VK_WHOLE_SIZE);
 
-    writes.emplace_back(m_descSetLayoutBind.makeWriteArray(m_descSet, 1, dbiMat.data()));
-    writes.emplace_back(m_descSetLayoutBind.makeWriteArray(m_descSet, 4, dbiMatIdx.data()));
-    writes.emplace_back(m_descSetLayoutBind.makeWriteArray(m_descSet, 5, dbiVert.data()));
-    writes.emplace_back(m_descSetLayoutBind.makeWriteArray(m_descSet, 6, dbiIdx.data()));
+    writes.emplace_back(DS_layout_bindings_.MakeWriteArray(m_descSet, 1, dbiMat.data()));
+    writes.emplace_back(DS_layout_bindings_.MakeWriteArray(m_descSet, 4, dbiMatIdx.data()));
+    writes.emplace_back(DS_layout_bindings_.MakeWriteArray(m_descSet, 5, dbiVert.data()));
+    writes.emplace_back(DS_layout_bindings_.MakeWriteArray(m_descSet, 6, dbiIdx.data()));
 
     vk::DescriptorBufferInfo dbiSpheres{m_spheresBuffer.buffer, 0, VK_WHOLE_SIZE};
-    writes.emplace_back(m_descSetLayoutBind.makeWrite(m_descSet, 7, &dbiSpheres));
+    writes.emplace_back(DS_layout_bindings_.MakeWrite(m_descSet, 7, &dbiSpheres));
 
     // All texture samplers
     std::vector<vk::DescriptorImageInfo> diit;
     for (auto& texture : m_textures) {
         diit.push_back(texture.descriptor);
     }
-    writes.emplace_back(m_descSetLayoutBind.makeWriteArray(m_descSet, 3, diit.data()));
+    writes.emplace_back(DS_layout_bindings_.MakeWriteArray(m_descSet, 3, diit.data()));
 
     // Writing the information
     device_.updateDescriptorSets(static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
@@ -180,7 +180,7 @@ void HelloVulkan::updateDescriptorSet() {
 //--------------------------------------------------------------------------------------------------
 // Creating the pipeline layout
 //
-void HelloVulkan::createGraphicsPipeline() {
+void HelloVulkan::BuildGraphicsPipeline() {
     using vkSS = vk::ShaderStageFlagBits;
 
     vk::PushConstantRange pushConstantRanges = {vkSS::eVertex | vkSS::eFragment, 0,
@@ -215,7 +215,7 @@ void HelloVulkan::createGraphicsPipeline() {
 //--------------------------------------------------------------------------------------------------
 // Loading the OBJ file and setting up all buffers
 //
-void HelloVulkan::loadModel(const std::string& filename, nvmath::mat4f transform) {
+void HelloVulkan::LoadModel(const std::string& filename, nvmath::mat4f transform) {
     using vkBU = vk::BufferUsageFlagBits;
 
     ObjLoader loader;
@@ -250,7 +250,7 @@ void HelloVulkan::loadModel(const std::string& filename, nvmath::mat4f transform
     model.matColorBuffer = m_alloc.createBuffer(cmdBuf, loader.m_materials, vkBU::eStorageBuffer);
     model.matIndexBuffer = m_alloc.createBuffer(cmdBuf, loader.m_matIndx, vkBU::eStorageBuffer);
     // Creates all textures found
-    createTextureImages(cmdBuf, loader.m_textures);
+    BuildTextureImages(cmdBuf, loader.m_textures);
     cmdBufGet.submitAndWait(cmdBuf);
     m_alloc.finalizeAndReleaseStaging();
 
@@ -268,7 +268,7 @@ void HelloVulkan::loadModel(const std::string& filename, nvmath::mat4f transform
 // Creating the uniform buffer holding the camera matrices
 // - Buffer is host visible
 //
-void HelloVulkan::createUniformBuffer() {
+void HelloVulkan::BuildUniformBuffer() {
     using vkBU = vk::BufferUsageFlagBits;
     using vkMP = vk::MemoryPropertyFlagBits;
 
@@ -283,7 +283,7 @@ void HelloVulkan::createUniformBuffer() {
 // - Transformation
 // - Offset for texture
 //
-void HelloVulkan::createSceneDescriptionBuffer() {
+void HelloVulkan::BuildSceneDescriptionBuffer() {
     using vkBU = vk::BufferUsageFlagBits;
     nvvk::CommandPool cmdGen(device_, graphics_queue_index_);
 
@@ -297,8 +297,8 @@ void HelloVulkan::createSceneDescriptionBuffer() {
 //--------------------------------------------------------------------------------------------------
 // Creating all textures and samplers
 //
-void HelloVulkan::createTextureImages(const vk::CommandBuffer&        cmdBuf,
-                                      const std::vector<std::string>& textures) {
+void HelloVulkan::BuildTextureImages(const vk::CommandBuffer&        cmdBuf,
+                                     const std::vector<std::string>& textures) {
     using vkIU = vk::ImageUsageFlagBits;
 
     vk::SamplerCreateInfo samplerCreateInfo{
@@ -422,7 +422,8 @@ void HelloVulkan::rasterize(const vk::CommandBuffer& cmdBuf) {
     m_debug.beginLabel(cmdBuf, "Rasterize");
 
     // Dynamic Viewport
-    cmdBuf.setViewport(0, {vk::Viewport(0, 0, (float)window_size_.width, (float)window_size_.height, 0, 1)});
+    cmdBuf.setViewport(
+        0, {vk::Viewport(0, 0, (float)window_size_.width, (float)window_size_.height, 0, 1)});
     cmdBuf.setScissor(0, {{{0, 0}, {window_size_.width, window_size_.height}}});
 
     // Drawing all triangles
@@ -569,18 +570,19 @@ void HelloVulkan::createPostDescriptor() {
     using vkDT = vk::DescriptorType;
     using vkSS = vk::ShaderStageFlagBits;
 
-    m_postDescSetLayoutBind.addBinding(vkDS(0, vkDT::eCombinedImageSampler, 1, vkSS::eFragment));
-    m_postDescSetLayout = m_postDescSetLayoutBind.createLayout(device_);
-    m_postDescPool      = m_postDescSetLayoutBind.createPool(device_);
-    m_postDescSet = nvvk::allocateDescriptorSet(device_, m_postDescPool, m_postDescSetLayout);
+    post_DS_layout_bindings_.AddBinding(vkDS(0, vkDT::eCombinedImageSampler, 1, vkSS::eFragment));
+    m_postDescSetLayout = post_DS_layout_bindings_.MakeLayout(device_);
+    m_postDescPool      = post_DS_layout_bindings_.MakePool(device_);
+    m_postDescSet       = nvvk::allocateDescriptorSet(device_, m_postDescPool, m_postDescSetLayout);
 }
 
 //--------------------------------------------------------------------------------------------------
 // Update the output
 //
 void HelloVulkan::updatePostDescriptorSet() {
-    vk::WriteDescriptorSet writeDescriptorSets =
-        m_postDescSetLayoutBind.makeWrite(m_postDescSet, 0, &m_offscreenColor.descriptor);
+    vk::WriteDescriptorSet writeDescriptorSets = post_DS_layout_bindings_.MakeWrite(
+        m_postDescSet, 0,
+        reinterpret_cast<const vk::DescriptorImageInfo*>(&m_offscreenColor.descriptor));
     device_.updateDescriptorSets(writeDescriptorSets, nullptr);
 }
 
@@ -590,10 +592,12 @@ void HelloVulkan::updatePostDescriptorSet() {
 void HelloVulkan::drawPost(vk::CommandBuffer cmdBuf) {
     m_debug.beginLabel(cmdBuf, "Post");
 
-    cmdBuf.setViewport(0, {vk::Viewport(0, 0, (float)window_size_.width, (float)window_size_.height, 0, 1)});
+    cmdBuf.setViewport(
+        0, {vk::Viewport(0, 0, (float)window_size_.width, (float)window_size_.height, 0, 1)});
     cmdBuf.setScissor(0, {{{0, 0}, {window_size_.width, window_size_.height}}});
 
-    auto aspectRatio = static_cast<float>(window_size_.width) / static_cast<float>(window_size_.height);
+    auto aspectRatio =
+        static_cast<float>(window_size_.width) / static_cast<float>(window_size_.height);
     cmdBuf.pushConstants<float>(m_postPipelineLayout, vk::ShaderStageFlagBits::eFragment, 0,
                                 aspectRatio);
     cmdBuf.bindPipeline(vk::PipelineBindPoint::eGraphics, m_postPipeline);
@@ -810,13 +814,13 @@ void HelloVulkan::createRtDescriptorSet() {
     using vkSS   = vk::ShaderStageFlagBits;
     using vkDSLB = vk::DescriptorSetLayoutBinding;
 
-    m_rtDescSetLayoutBind.addBinding(vkDSLB(0, vkDT::eAccelerationStructureKHR, 1,
+    rt_DS_layout_bindings_.AddBinding(vkDSLB(0, vkDT::eAccelerationStructureKHR, 1,
                                             vkSS::eRaygenKHR | vkSS::eClosestHitKHR));  // TLAS
-    m_rtDescSetLayoutBind.addBinding(
+    rt_DS_layout_bindings_.AddBinding(
         vkDSLB(1, vkDT::eStorageImage, 1, vkSS::eRaygenKHR));  // Output image
 
-    m_rtDescPool      = m_rtDescSetLayoutBind.createPool(device_);
-    m_rtDescSetLayout = m_rtDescSetLayoutBind.createLayout(device_);
+    m_rtDescPool      = rt_DS_layout_bindings_.MakePool(device_);
+    m_rtDescSetLayout = rt_DS_layout_bindings_.MakeLayout(device_);
     m_rtDescSet       = device_.allocateDescriptorSets({m_rtDescPool, 1, &m_rtDescSetLayout})[0];
 
     vk::AccelerationStructureKHR                   tlas = m_rtBuilder.getAccelerationStructure();
@@ -827,8 +831,8 @@ void HelloVulkan::createRtDescriptorSet() {
         {}, m_offscreenColor.descriptor.imageView, vk::ImageLayout::eGeneral};
 
     std::vector<vk::WriteDescriptorSet> writes;
-    writes.emplace_back(m_rtDescSetLayoutBind.makeWrite(m_rtDescSet, 0, &descASInfo));
-    writes.emplace_back(m_rtDescSetLayoutBind.makeWrite(m_rtDescSet, 1, &imageInfo));
+    writes.emplace_back(rt_DS_layout_bindings_.MakeWrite(m_rtDescSet, 0, &descASInfo));
+    writes.emplace_back(rt_DS_layout_bindings_.MakeWrite(m_rtDescSet, 1, &imageInfo));
     device_.updateDescriptorSets(static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
 }
 
@@ -976,7 +980,7 @@ void HelloVulkan::createRtShaderBindingTable() {
 
     std::vector<uint8_t> shaderHandleStorage(sbtSize);
     device_.getRayTracingShaderGroupHandlesKHR(m_rtPipeline, 0, groupCount, sbtSize,
-                                                shaderHandleStorage.data());
+                                               shaderHandleStorage.data());
     // Write the handles in the SBT
     nvvk::CommandPool genCmdBuf(device_, graphics_queue_index_);
     vk::CommandBuffer cmdBuf = genCmdBuf.createCommandBuffer();
@@ -1026,7 +1030,7 @@ void HelloVulkan::raytrace(const vk::CommandBuffer& cmdBuf, const nvmath::vec4f&
                                                               progSize, sbtSize};
     const vk::StridedBufferRegionKHR callableShaderBindingTable;
     cmdBuf.traceRaysKHR(&raygenShaderBindingTable, &missShaderBindingTable, &hitShaderBindingTable,
-                        &callableShaderBindingTable,      //
+                        &callableShaderBindingTable,                  //
                         window_size_.width, window_size_.height, 1);  //
 
 

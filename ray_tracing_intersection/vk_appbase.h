@@ -69,7 +69,6 @@ class AppBase
 
     void SetupGlfwCallbacks();
 
-
     // Simple Getters
 
     vk::Instance       instance() { return instance_; }
