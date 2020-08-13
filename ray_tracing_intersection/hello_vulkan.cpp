@@ -45,6 +45,8 @@ extern std::vector<std::string> defaultSearchPaths;
 #define GLM_FORCE_RADIANS
 #include <glm/gtx/transform.hpp>
 
+#include "logging.h"
+
 // Holding the camera matrices
 struct CameraMatrices {
     nvmath::mat4f view;
@@ -59,9 +61,11 @@ struct CameraMatrices {
 // Initialize the tool to do all our allocations: buffers, images
 //
 void HelloVulkan::Setup(const vk::Instance& instance, const vk::Device& device,
-                        const vk::PhysicalDevice& physicalDevice, uint32_t queueFamily) {
+                        const vk::PhysicalDevice& physicalDevice, u32 queueFamily) {
     AppBase::Setup(instance, device, physicalDevice, queueFamily);
     m_alloc.init(device, physicalDevice);
+    allocator_.Setup(device, physicalDevice);
+    CHECK(allocator_.ReadyToUse());
     m_debug.setup(device_);
 }
 
@@ -86,9 +90,9 @@ void HelloVulkan::UpdateUniformBuffer() {
     glm_ubo.view_inverse = glm::inverse(glm_ubo.view);
     glm_ubo.proj_inverse = glm::inverse(glm_ubo.proj);
 
-    void* data = device_.mapMemory(m_cameraMat.allocation, 0, sizeof(glm_ubo));
+    void* data = device_.mapMemory(m_cameraMat.memory, 0, sizeof(glm_ubo));
     memcpy(data, &glm_ubo, sizeof(glm_ubo));
-    device_.unmapMemory(m_cameraMat.allocation);
+    device_.unmapMemory(m_cameraMat.memory);
 }
 
 //--------------------------------------------------------------------------------------------------
@@ -139,9 +143,9 @@ void HelloVulkan::UpdateDescriptorSet() {
     std::vector<vk::WriteDescriptorSet> writes;
 
     // Camera matrices and scene description
-    vk::DescriptorBufferInfo dbiUnif{m_cameraMat.buffer, 0, VK_WHOLE_SIZE};
+    vk::DescriptorBufferInfo dbiUnif{m_cameraMat.handle, 0, VK_WHOLE_SIZE};
     writes.emplace_back(DS_layout_bindings_.MakeWrite(m_descSet, 0, &dbiUnif));
-    vk::DescriptorBufferInfo dbiSceneDesc{m_sceneDesc.buffer, 0, VK_WHOLE_SIZE};
+    vk::DescriptorBufferInfo dbiSceneDesc{m_sceneDesc.handle, 0, VK_WHOLE_SIZE};
     writes.emplace_back(DS_layout_bindings_.MakeWrite(m_descSet, 2, &dbiSceneDesc));
 
     // All material buffers, 1 buffer per OBJ
@@ -150,20 +154,20 @@ void HelloVulkan::UpdateDescriptorSet() {
     std::vector<vk::DescriptorBufferInfo> dbiVert;
     std::vector<vk::DescriptorBufferInfo> dbiIdx;
     for (auto& obj : m_objModel) {
-        dbiMat.emplace_back(obj.matColorBuffer.buffer, 0, VK_WHOLE_SIZE);
-        dbiMatIdx.emplace_back(obj.matIndexBuffer.buffer, 0, VK_WHOLE_SIZE);
-        dbiVert.emplace_back(obj.vertexBuffer.buffer, 0, VK_WHOLE_SIZE);
-        dbiIdx.emplace_back(obj.indexBuffer.buffer, 0, VK_WHOLE_SIZE);
+        dbiMat.emplace_back(obj.matColorBuffer.handle, 0, VK_WHOLE_SIZE);
+        dbiMatIdx.emplace_back(obj.matIndexBuffer.handle, 0, VK_WHOLE_SIZE);
+        dbiVert.emplace_back(obj.vertexBuffer.handle, 0, VK_WHOLE_SIZE);
+        dbiIdx.emplace_back(obj.indexBuffer.handle, 0, VK_WHOLE_SIZE);
     }
-    dbiMat.emplace_back(m_spheresMatColorBuffer.buffer, 0, VK_WHOLE_SIZE);
-    dbiMatIdx.emplace_back(m_spheresMatIndexBuffer.buffer, 0, VK_WHOLE_SIZE);
+    dbiMat.emplace_back(m_spheresMatColorBuffer.handle, 0, VK_WHOLE_SIZE);
+    dbiMatIdx.emplace_back(m_spheresMatIndexBuffer.handle, 0, VK_WHOLE_SIZE);
 
     writes.emplace_back(DS_layout_bindings_.MakeWriteArray(m_descSet, 1, dbiMat.data()));
     writes.emplace_back(DS_layout_bindings_.MakeWriteArray(m_descSet, 4, dbiMatIdx.data()));
     writes.emplace_back(DS_layout_bindings_.MakeWriteArray(m_descSet, 5, dbiVert.data()));
     writes.emplace_back(DS_layout_bindings_.MakeWriteArray(m_descSet, 6, dbiIdx.data()));
 
-    vk::DescriptorBufferInfo dbiSpheres{m_spheresBuffer.buffer, 0, VK_WHOLE_SIZE};
+    vk::DescriptorBufferInfo dbiSpheres{m_spheresBuffer.handle, 0, VK_WHOLE_SIZE};
     writes.emplace_back(DS_layout_bindings_.MakeWrite(m_descSet, 7, &dbiSpheres));
 
     // All texture samplers
@@ -241,24 +245,25 @@ void HelloVulkan::LoadModel(const std::string& filename, nvmath::mat4f transform
     // Create the buffers on Device and copy vertices, indices and materials
     nvvk::CommandPool cmdBufGet(device_, graphics_queue_index_);
     vk::CommandBuffer cmdBuf = cmdBufGet.createCommandBuffer();
-    model.vertexBuffer       = m_alloc.createBuffer(cmdBuf, loader.m_vertices,
+    model.vertexBuffer       = allocator_.MakeBuffer(cmdBuf, loader.m_vertices,
                                               vkBU::eVertexBuffer | vkBU::eStorageBuffer
                                                   | vkBU::eShaderDeviceAddress);
-    model.indexBuffer        = m_alloc.createBuffer(cmdBuf, loader.m_indices,
+    model.indexBuffer        = allocator_.MakeBuffer(cmdBuf, loader.m_indices,
                                              vkBU::eIndexBuffer | vkBU::eStorageBuffer
                                                  | vkBU::eShaderDeviceAddress);
-    model.matColorBuffer = m_alloc.createBuffer(cmdBuf, loader.m_materials, vkBU::eStorageBuffer);
-    model.matIndexBuffer = m_alloc.createBuffer(cmdBuf, loader.m_matIndx, vkBU::eStorageBuffer);
+    model.matColorBuffer = allocator_.MakeBuffer(cmdBuf, loader.m_materials, vkBU::eStorageBuffer);
+    model.matIndexBuffer = allocator_.MakeBuffer(cmdBuf, loader.m_matIndx, vkBU::eStorageBuffer);
     // Creates all textures found
     BuildTextureImages(cmdBuf, loader.m_textures);
     cmdBufGet.submitAndWait(cmdBuf);
+    allocator_.ReleaseAllStagingBuffers();
     m_alloc.finalizeAndReleaseStaging();
 
     std::string objNb = std::to_string(instance.objIndex);
-    m_debug.setObjectName(model.vertexBuffer.buffer, (std::string("vertex_" + objNb).c_str()));
-    m_debug.setObjectName(model.indexBuffer.buffer, (std::string("index_" + objNb).c_str()));
-    m_debug.setObjectName(model.matColorBuffer.buffer, (std::string("mat_" + objNb).c_str()));
-    m_debug.setObjectName(model.matIndexBuffer.buffer, (std::string("matIdx_" + objNb).c_str()));
+    m_debug.setObjectName(model.vertexBuffer.handle, (std::string("vertex_" + objNb).c_str()));
+    m_debug.setObjectName(model.indexBuffer.handle, (std::string("index_" + objNb).c_str()));
+    m_debug.setObjectName(model.matColorBuffer.handle, (std::string("mat_" + objNb).c_str()));
+    m_debug.setObjectName(model.matIndexBuffer.handle, (std::string("matIdx_" + objNb).c_str()));
 
     m_objModel.emplace_back(model);
     m_objInstance.emplace_back(instance);
@@ -272,9 +277,9 @@ void HelloVulkan::BuildUniformBuffer() {
     using vkBU = vk::BufferUsageFlagBits;
     using vkMP = vk::MemoryPropertyFlagBits;
 
-    m_cameraMat = m_alloc.createBuffer(sizeof(CameraMatrices), vkBU::eUniformBuffer,
+    m_cameraMat = allocator_.MakeBuffer(sizeof(CameraMatrices), vkBU::eUniformBuffer,
                                        vkMP::eHostVisible | vkMP::eHostCoherent);
-    m_debug.setObjectName(m_cameraMat.buffer, "cameraMat");
+    m_debug.setObjectName(m_cameraMat.handle, "cameraMat");
 }
 
 //--------------------------------------------------------------------------------------------------
@@ -288,10 +293,10 @@ void HelloVulkan::BuildSceneDescriptionBuffer() {
     nvvk::CommandPool cmdGen(device_, graphics_queue_index_);
 
     auto cmdBuf = cmdGen.createCommandBuffer();
-    m_sceneDesc = m_alloc.createBuffer(cmdBuf, m_objInstance, vkBU::eStorageBuffer);
+    m_sceneDesc = allocator_.MakeBuffer(cmdBuf, m_objInstance, vkBU::eStorageBuffer);
     cmdGen.submitAndWait(cmdBuf);
     m_alloc.finalizeAndReleaseStaging();
-    m_debug.setObjectName(m_sceneDesc.buffer, "sceneDesc");
+    m_debug.setObjectName(m_sceneDesc.handle, "sceneDesc");
 }
 
 //--------------------------------------------------------------------------------------------------
@@ -373,14 +378,14 @@ void HelloVulkan::destroyResources() {
     device_.destroy(m_pipelineLayout);
     device_.destroy(m_descPool);
     device_.destroy(m_descSetLayout);
-    m_alloc.destroy(m_cameraMat);
-    m_alloc.destroy(m_sceneDesc);
+    m_cameraMat.DestroyFrom(device_);
+    m_sceneDesc.DestroyFrom(device_);
 
     for (auto& m : m_objModel) {
-        m_alloc.destroy(m.vertexBuffer);
-        m_alloc.destroy(m.indexBuffer);
-        m_alloc.destroy(m.matColorBuffer);
-        m_alloc.destroy(m.matIndexBuffer);
+        m.vertexBuffer.DestroyFrom(device_);
+        m.indexBuffer.DestroyFrom(device_);
+        m.matColorBuffer.DestroyFrom(device_);
+        m.matIndexBuffer.DestroyFrom(device_);
     }
 
     for (auto& t : m_textures) {
@@ -403,12 +408,12 @@ void HelloVulkan::destroyResources() {
     device_.destroy(m_rtDescSetLayout);
     device_.destroy(m_rtPipeline);
     device_.destroy(m_rtPipelineLayout);
-    m_alloc.destroy(m_rtSBTBuffer);
+    m_rtSBTBuffer.DestroyFrom(device_);
 
-    m_alloc.destroy(m_spheresBuffer);
-    m_alloc.destroy(m_spheresAabbBuffer);
-    m_alloc.destroy(m_spheresMatColorBuffer);
-    m_alloc.destroy(m_spheresMatIndexBuffer);
+    m_spheresBuffer.DestroyFrom(device_);
+    m_spheresAabbBuffer.DestroyFrom(device_);
+    m_spheresMatColorBuffer.DestroyFrom(device_);
+    m_spheresMatIndexBuffer.DestroyFrom(device_);
 }
 
 //--------------------------------------------------------------------------------------------------
@@ -436,8 +441,8 @@ void HelloVulkan::rasterize(const vk::CommandBuffer& cmdBuf) {
         cmdBuf.pushConstants<ObjPushConstant>(m_pipelineLayout, vkSS::eVertex | vkSS::eFragment, 0,
                                               m_pushConstant);
 
-        cmdBuf.bindVertexBuffers(0, {model.vertexBuffer.buffer}, {offset});
-        cmdBuf.bindIndexBuffer(model.indexBuffer.buffer, 0, vk::IndexType::eUint32);
+        cmdBuf.bindVertexBuffers(0, {model.vertexBuffer.handle}, {offset});
+        cmdBuf.bindIndexBuffer(model.indexBuffer.handle, 0, vk::IndexType::eUint32);
         cmdBuf.drawIndexed(model.nbIndices, 1, 0, 0, 0);
     }
     m_debug.endLabel(cmdBuf);
@@ -635,8 +640,8 @@ nvvk::RaytracingBuilderKHR::Blas HelloVulkan::objectToVkGeometryKHR(const ObjMod
     asCreate.setMaxVertexCount(model.nbVertices);
     asCreate.setAllowsTransforms(VK_FALSE);  // No adding transformation matrices
 
-    vk::DeviceAddress vertexAddress = device_.getBufferAddress({model.vertexBuffer.buffer});
-    vk::DeviceAddress indexAddress  = device_.getBufferAddress({model.indexBuffer.buffer});
+    vk::DeviceAddress vertexAddress = device_.getBufferAddress({model.vertexBuffer.handle});
+    vk::DeviceAddress indexAddress  = device_.getBufferAddress({model.indexBuffer.handle});
     vk::AccelerationStructureGeometryTrianglesDataKHR triangles;
     triangles.setVertexFormat(asCreate.vertexFormat);
     triangles.setVertexData(vertexAddress);
@@ -677,7 +682,7 @@ nvvk::RaytracingBuilderKHR::Blas HelloVulkan::sphereToVkGeometryKHR() {
     asCreate.setAllowsTransforms(VK_FALSE);  // No adding transformation matrices
 
 
-    vk::DeviceAddress dataAddress = device_.getBufferAddress({m_spheresAabbBuffer.buffer});
+    vk::DeviceAddress dataAddress = device_.getBufferAddress({m_spheresAabbBuffer.handle});
     vk::AccelerationStructureGeometryAabbsDataKHR aabbs;
     aabbs.setData(dataAddress);
     aabbs.setStride(sizeof(Aabb));
@@ -746,17 +751,17 @@ void HelloVulkan::createSpheres() {
     using vkBU = vk::BufferUsageFlagBits;
     nvvk::CommandPool genCmdBuf(device_, graphics_queue_index_);
     auto              cmdBuf = genCmdBuf.createCommandBuffer();
-    m_spheresBuffer          = m_alloc.createBuffer(cmdBuf, m_spheres, vkBU::eStorageBuffer);
-    m_spheresAabbBuffer      = m_alloc.createBuffer(cmdBuf, aabbs, vkBU::eShaderDeviceAddress);
-    m_spheresMatIndexBuffer  = m_alloc.createBuffer(cmdBuf, matIdx, vkBU::eStorageBuffer);
-    m_spheresMatColorBuffer  = m_alloc.createBuffer(cmdBuf, materials, vkBU::eStorageBuffer);
+    m_spheresBuffer          = allocator_.MakeBuffer(cmdBuf, m_spheres, vkBU::eStorageBuffer);
+    m_spheresAabbBuffer      = allocator_.MakeBuffer(cmdBuf, aabbs, vkBU::eShaderDeviceAddress);
+    m_spheresMatIndexBuffer  = allocator_.MakeBuffer(cmdBuf, matIdx, vkBU::eStorageBuffer);
+    m_spheresMatColorBuffer  = allocator_.MakeBuffer(cmdBuf, materials, vkBU::eStorageBuffer);
     genCmdBuf.submitAndWait(cmdBuf);
 
     // Debug information
-    m_debug.setObjectName(m_spheresBuffer.buffer, "spheres");
-    m_debug.setObjectName(m_spheresAabbBuffer.buffer, "spheresAabb");
-    m_debug.setObjectName(m_spheresMatColorBuffer.buffer, "spheresMat");
-    m_debug.setObjectName(m_spheresMatIndexBuffer.buffer, "spheresMatIdx");
+    m_debug.setObjectName(m_spheresBuffer.handle, "spheres");
+    m_debug.setObjectName(m_spheresAabbBuffer.handle, "spheresAabb");
+    m_debug.setObjectName(m_spheresMatColorBuffer.handle, "spheresMat");
+    m_debug.setObjectName(m_spheresMatIndexBuffer.handle, "spheresMatIdx");
 }
 
 void HelloVulkan::createBottomLevelAS() {
@@ -986,12 +991,12 @@ void HelloVulkan::createRtShaderBindingTable() {
     vk::CommandBuffer cmdBuf = genCmdBuf.createCommandBuffer();
 
     m_rtSBTBuffer =
-        m_alloc.createBuffer(cmdBuf, shaderHandleStorage, vk::BufferUsageFlagBits::eRayTracingKHR);
-    m_debug.setObjectName(m_rtSBTBuffer.buffer, "SBT");
+        allocator_.MakeBuffer(cmdBuf, shaderHandleStorage, vk::BufferUsageFlagBits::eRayTracingKHR);
+    m_debug.setObjectName(m_rtSBTBuffer.handle, "SBT");
 
 
     genCmdBuf.submitAndWait(cmdBuf);
-
+    allocator_.ReleaseAllStagingBuffers();
     m_alloc.finalizeAndReleaseStaging();
 }
 
@@ -1022,11 +1027,11 @@ void HelloVulkan::raytrace(const vk::CommandBuffer& cmdBuf, const nvmath::vec4f&
     vk::DeviceSize sbtSize        = progSize * (vk::DeviceSize)m_rtShaderGroups.size();
 
     // m_sbtBuffer holds all the shader handles: raygen, n-miss, hit...
-    const vk::StridedBufferRegionKHR raygenShaderBindingTable = {m_rtSBTBuffer.buffer, rayGenOffset,
+    const vk::StridedBufferRegionKHR raygenShaderBindingTable = {m_rtSBTBuffer.handle, rayGenOffset,
                                                                  progSize, sbtSize};
-    const vk::StridedBufferRegionKHR missShaderBindingTable   = {m_rtSBTBuffer.buffer, missOffset,
+    const vk::StridedBufferRegionKHR missShaderBindingTable   = {m_rtSBTBuffer.handle, missOffset,
                                                                progSize, sbtSize};
-    const vk::StridedBufferRegionKHR hitShaderBindingTable = {m_rtSBTBuffer.buffer, hitGroupOffset,
+    const vk::StridedBufferRegionKHR hitShaderBindingTable = {m_rtSBTBuffer.handle, hitGroupOffset,
                                                               progSize, sbtSize};
     const vk::StridedBufferRegionKHR callableShaderBindingTable;
     cmdBuf.traceRaysKHR(&raygenShaderBindingTable, &missShaderBindingTable, &hitShaderBindingTable,

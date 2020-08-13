@@ -97,6 +97,7 @@ int main(int argc, char** argv)
         return 1;
     }
 
+
     // setup some basic things for the sample, logging file for example
     NVPSystem system(argv[0], PROJECT_NAME);
 

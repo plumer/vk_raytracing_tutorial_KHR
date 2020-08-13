@@ -31,6 +31,7 @@
 #define NVVK_ALLOC_DEDICATED
 #include "nvvk/allocator_vk.hpp"
 #include "vk_appbase.h"
+#include "vk_memory.h"
 #include "vk_utils.h"
 // #VKRay
 #include "nvvk/raytraceKHR_vk.hpp"
@@ -45,6 +46,7 @@
 class HelloVulkan : public vkpbr::AppBase
 {
   public:
+    HelloVulkan() = default;
     void Setup(const vk::Instance& instance, const vk::Device& device,
                const vk::PhysicalDevice& physicalDevice, u32 queueFamily) override;
     void BuildDescriptorSetLayout();
@@ -62,12 +64,12 @@ class HelloVulkan : public vkpbr::AppBase
 
     // The OBJ model
     struct ObjModel {
-        uint32_t     nbIndices{0};
-        uint32_t     nbVertices{0};
-        nvvk::Buffer vertexBuffer;    // Device buffer of all 'Vertex'
-        nvvk::Buffer indexBuffer;     // Device buffer of the indices forming triangles
-        nvvk::Buffer matColorBuffer;  // Device buffer of array of 'Wavefront material'
-        nvvk::Buffer matIndexBuffer;  // Device buffer of array of 'Wavefront material'
+        uint32_t                  nbIndices{0};
+        uint32_t                  nbVertices{0};
+        vkpbr::UniqueMemoryBuffer vertexBuffer;    // Device buffer of all 'Vertex'
+        vkpbr::UniqueMemoryBuffer indexBuffer;     // Device buffer of the indices forming triangles
+        vkpbr::UniqueMemoryBuffer matColorBuffer;  // Device buffer of array of 'Wavefront material'
+        vkpbr::UniqueMemoryBuffer matIndexBuffer;  // Device buffer of array of 'Wavefront material'
     };
 
     // Instance of the OBJ
@@ -100,11 +102,12 @@ class HelloVulkan : public vkpbr::AppBase
     vk::DescriptorSetLayout      m_descSetLayout;
     vk::DescriptorSet            m_descSet;
 
-    nvvk::Buffer               m_cameraMat;  // Device-Host of the camera matrices
-    nvvk::Buffer               m_sceneDesc;  // Device buffer of the OBJ instances
+    vkpbr::UniqueMemoryBuffer  m_cameraMat;  // Device-Host of the camera matrices
+    vkpbr::UniqueMemoryBuffer  m_sceneDesc;  // Device buffer of the OBJ instances
     std::vector<nvvk::Texture> m_textures;   // vector of all textures of the scene
 
     nvvk::AllocatorDedicated m_alloc;  // Allocator for buffer, images, acceleration structures
+    vkpbr::UniqueMemoryAllocator allocator_;
     nvvk::DebugUtil          m_debug;  // Utility to name objects
 
     // #Post
@@ -148,7 +151,7 @@ class HelloVulkan : public vkpbr::AppBase
     std::vector<vk::RayTracingShaderGroupCreateInfoKHR> m_rtShaderGroups;
     vk::PipelineLayout                                  m_rtPipelineLayout;
     vk::Pipeline                                        m_rtPipeline;
-    nvvk::Buffer                                        m_rtSBTBuffer;
+    vkpbr::UniqueMemoryBuffer                           m_rtSBTBuffer;
 
     struct RtPushConstant {
         nvmath::vec4f clearColor;
@@ -170,10 +173,10 @@ class HelloVulkan : public vkpbr::AppBase
 
     nvvk::RaytracingBuilderKHR::Blas sphereToVkGeometryKHR();
 
-    std::vector<Sphere> m_spheres;                // All spheres
-    nvvk::Buffer        m_spheresBuffer;          // Buffer holding the spheres
-    nvvk::Buffer        m_spheresAabbBuffer;      // Buffer of all Aabb
-    nvvk::Buffer        m_spheresMatColorBuffer;  // Multiple materials
-    nvvk::Buffer        m_spheresMatIndexBuffer;  // Define which sphere uses which material
-    void                createSpheres();
+    std::vector<Sphere>       m_spheres;                // All spheres
+    vkpbr::UniqueMemoryBuffer m_spheresBuffer;          // Buffer holding the spheres
+    vkpbr::UniqueMemoryBuffer m_spheresAabbBuffer;      // Buffer of all Aabb
+    vkpbr::UniqueMemoryBuffer m_spheresMatColorBuffer;  // Multiple materials
+    vkpbr::UniqueMemoryBuffer m_spheresMatIndexBuffer;  // Define which sphere uses which material
+    void                      createSpheres();
 };

@@ -6,8 +6,46 @@
 #include <vulkan/vulkan.hpp>
 
 #include "types.h"
+#include "vk_memory.h"
 
 namespace vkpbr {
+
+template<typename BitType>
+bool FlagsMatch(vk::Flags<BitType> candidate, vk::Flags<BitType> desired_flags)
+{
+    return (candidate & desired_flags) == desired_flags;
+}
+template<typename BitType>
+bool FlagsMatch(vk::Flags<BitType> candidate, BitType desired_flags)
+{
+    return FlagsMatch(candidate, vk::Flags<BitType>(desired_flags));
+}
+
+class CommandPool
+{
+  public:
+    CommandPool(const vk::Device& device, u32 queue_family_index,
+                vk::CommandPoolCreateFlags flags = vk::CommandPoolCreateFlagBits::eTransient,
+                vk::Queue                  default_queue = nullptr);
+    ~CommandPool();
+
+    CommandPool(CommandPool const&) = delete;
+    CommandPool& operator=(CommandPool const&) = delete;
+
+    vk::CommandBuffer MakeCmdBuffer(
+        vk::CommandBufferLevel level = vk::CommandBufferLevel::ePrimary, bool begin = true,
+        vk::CommandBufferUsageFlags usage = vk::CommandBufferUsageFlagBits::eOneTimeSubmit,
+        const vk::CommandBufferInheritanceInfo* p_inheritance_info = nullptr);
+
+    void SubmitAndWait(vk::ArrayProxy<const vk::CommandBuffer> cmds, vk::Queue queue = nullptr);
+
+  private:
+    const vk::Device& device_;
+    const vk::Queue   default_queue_;
+    u32               queue_index_ = 0;
+
+    vk::CommandPool cmd_pool_;
+};
 
 class DescriptorSetBindings
 {
@@ -80,6 +118,77 @@ class DescriptorSetBindings
 
   private:
     std::vector<vk::DescriptorSetLayoutBinding> bindings_;
+};
+
+
+class RaytracingBuilder
+{
+  public:
+    // Type Aliases.
+    using AS                       = vk::AccelerationStructureKHR;
+    using BuildASFlags             = vk::BuildAccelerationStructureFlagsKHR;
+    using BuildASFlagBits          = vk::BuildAccelerationStructureFlagBitsKHR;
+    using ASCreateGeometryTypeInfo = vk::AccelerationStructureCreateGeometryTypeInfoKHR;
+    using ASGeometry               = vk::AccelerationStructureGeometryKHR;
+    using ASBuildOffsetInfo        = vk::AccelerationStructureBuildOffsetInfoKHR;
+
+    RaytracingBuilder(RaytracingBuilder const&) = delete;
+    RaytracingBuilder& operator=(const RaytracingBuilder&) = delete;
+
+    RaytracingBuilder() = default;
+
+    struct Blas {
+        UniqueMemoryAccelStruct accel_struct;
+        BuildASFlags            flags;
+
+        std::vector<ASCreateGeometryTypeInfo> as_create_geometry_info;
+        std::vector<ASGeometry>               as_geometry;
+        std::vector<ASBuildOffsetInfo>        as_build_offset_info;
+    };
+    struct Instance {
+        u32                          blas_id      = 0;
+        u32                          instance_id  = 0;
+        u32                          hit_group_id = 0;
+        u32                          mask         = 0xFF;
+        vk::GeometryInstanceFlagsKHR flags =
+            vk::GeometryInstanceFlagBitsKHR::eTriangleFacingCullDisable;
+        glm::mat4 transform = glm::mat4(1.0f);
+    };
+
+    void Setup(const vk::Device& device, const UniqueMemoryAllocator* allocator, u32 queue_index);
+
+    void Destroy();
+
+    void BuildBlas(const std::vector<Blas>& blases,
+                   BuildASFlags             flags = BuildASFlagBits::ePreferFastTrace);
+
+    vk::AccelerationStructureInstanceKHR InstanceToVkGeometryInstanceKHR(const Instance &instance);
+
+    void BuildTlas(const std::vector<Instance>& instances,
+                   BuildASFlags                 flags = BuildASFlagBits::ePreferFastTrace);
+
+    // Refits the TLAS using new instance matrices
+    void UpdateTlasMatrices(const std::vector<Instance>& instances);
+
+    // Refits the BLAS from updated buffers.
+    void UpdateBlas(u32 blas_index);
+
+
+  private:
+    struct Tlas {
+        UniqueMemoryAccelStruct accel_struct;
+        vk::AccelerationStructureCreateInfoKHR accel_struct_ci;
+        vk::BuildAccelerationStructureFlagsKHR flags;
+    };
+
+    std::vector<Blas> blases_;
+    Tlas              tlas_;
+
+    UniqueMemoryBuffer instance_buffer_;
+
+    vk::Device                   device_;
+    const UniqueMemoryAllocator* allocator_ = nullptr;
+    u32                          queue_index_ = 0;
 };
 
 }  // namespace vkpbr

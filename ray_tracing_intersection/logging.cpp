@@ -6,6 +6,7 @@
 #include <cstring>
 #include <ctime>
 #include <iostream>
+#include <cstdio>
 
 Logger::Logger(LogSeverity severity, const char* file_name, int line_number)
     : severity_(severity) {
@@ -19,7 +20,6 @@ Logger::Logger(LogSeverity severity, const char* file_name, int line_number)
     char buffer[64] = {0};
     int  tmp = strftime(buffer, sizeof(buffer), "%T", &local_timespec);
     sprintf(buffer + tmp, ".%06d", ts.tv_nsec / 1000);
-
     const char* last_file_name = file_name + std::strlen(file_name) - 1;
     while (last_file_name >= file_name) {
         if (*last_file_name == '/' || *last_file_name == '\\')

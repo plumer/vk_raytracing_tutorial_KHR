@@ -1,4 +1,4 @@
-﻿BasedOnStyle: Google
+﻿BasedOnStyle: Microsoft
 
 AccessModifierOffset: '-2'
 AlignAfterOpenBracket: Align
@@ -46,18 +46,20 @@ Standard: Cpp11
 TabWidth: '4'
 UseTab: Never
 SortIncludes: 'true'
-ReflowComments: 'false'
+ReflowComments: 'true'
 BraceWrapping: {
  AfterClass: 'true'
  AfterControlStatement: 'false'
  AfterEnum: 'false'
- AfterFunction: 'false'
+ AfterFunction: 'true'
  AfterNamespace: 'false' 
  AfterStruct: 'false'
  AfterUnion: 'true'
  BeforeCatch: 'false'
  BeforeElse: 'false'
  IndentBraces: 'false'
+ SplitEmptyFunction: 'false'
+ SplitEmptyRecord: 'false'
 }
 PenaltyExcessCharacter: 9999
 PenaltyBreakBeforeFirstCallParameter: 40
