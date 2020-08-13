@@ -51,7 +51,7 @@ class HelloVulkan : public vkpbr::AppBase
                const vk::PhysicalDevice& physicalDevice, u32 queueFamily) override;
     void BuildDescriptorSetLayout();
     void BuildGraphicsPipeline();
-    void LoadModel(const std::string& filename, nvmath::mat4f transform = nvmath::mat4f(1));
+    void LoadModel(const std::string& filename, glm::mat4 transform = glm::mat4(1));
     void UpdateDescriptorSet();
     void BuildUniformBuffer();
     void BuildSceneDescriptionBuffer();
@@ -76,14 +76,14 @@ class HelloVulkan : public vkpbr::AppBase
     struct ObjInstance {
         uint32_t      objIndex{0};     // Reference to the `m_objModel`
         uint32_t      txtOffset{0};    // Offset in `m_textures`
-        nvmath::mat4f transform{1};    // Position of the instance
-        nvmath::mat4f transformIT{1};  // Inverse transpose
-        nvmath::mat4f dummy;
+        glm::mat4 transform{1};    // Position of the instance
+        glm::mat4     transformIT{1};  // Inverse transpose
+        glm::mat4     dummy;
     };
 
     // Information pushed at each draw call
     struct ObjPushConstant {
-        nvmath::vec3f lightPosition{10.f, 15.f, 8.f};
+        glm::vec3 lightPosition{10.f, 15.f, 8.f};
         int           instanceId{0};  // To retrieve the transformation matrix
         float         lightIntensity{100.f};
         int           lightType{0};  // 0: point, 1: infinite
@@ -139,7 +139,7 @@ class HelloVulkan : public vkpbr::AppBase
     void                             updateRtDescriptorSet();
     void                             createRtPipeline();
     void                             createRtShaderBindingTable();
-    void raytrace(const vk::CommandBuffer& cmdBuf, const nvmath::vec4f& clearColor);
+    void raytrace(const vk::CommandBuffer& cmdBuf, const glm::vec4& clearColor);
 
 
     vk::PhysicalDeviceRayTracingPropertiesKHR           m_rtProperties;
@@ -154,21 +154,21 @@ class HelloVulkan : public vkpbr::AppBase
     vkpbr::UniqueMemoryBuffer                           m_rtSBTBuffer;
 
     struct RtPushConstant {
-        nvmath::vec4f clearColor;
-        nvmath::vec3f lightPosition;
+        glm::vec4 clearColor;
+        glm::vec3 lightPosition;
         float         lightIntensity;
         int           lightType;
     } m_rtPushConstants;
 
 
     struct Sphere {
-        nvmath::vec3f center;
+        glm::vec3 center;
         float         radius;
     };
 
     struct Aabb {
-        nvmath::vec3f minimum;
-        nvmath::vec3f maximum;
+        glm::vec3 minimum;
+        glm::vec3 maximum;
     };
 
     nvvk::RaytracingBuilderKHR::Blas sphereToVkGeometryKHR();

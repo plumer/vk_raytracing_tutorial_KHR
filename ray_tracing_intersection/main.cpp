@@ -190,7 +190,7 @@ int main(int argc, char** argv)
     helloVk.updatePostDescriptorSet();
 
 
-    nvmath::vec4f clearColor   = nvmath::vec4f(1, 1, 1, 1.00f);
+    glm::vec4 clearColor   = glm::vec4(1, 1, 1, 1.00f);
     bool          useRaytracer = true;
 
 

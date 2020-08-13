@@ -219,7 +219,7 @@ void HelloVulkan::BuildGraphicsPipeline() {
 //--------------------------------------------------------------------------------------------------
 // Loading the OBJ file and setting up all buffers
 //
-void HelloVulkan::LoadModel(const std::string& filename, nvmath::mat4f transform) {
+void HelloVulkan::LoadModel(const std::string& filename, glm::mat4 transform) {
     using vkBU = vk::BufferUsageFlagBits;
 
     ObjLoader loader;
@@ -235,7 +235,7 @@ void HelloVulkan::LoadModel(const std::string& filename, nvmath::mat4f transform
     ObjInstance instance;
     instance.objIndex    = static_cast<uint32_t>(m_objModel.size());
     instance.transform   = transform;
-    instance.transformIT = nvmath::transpose(nvmath::invert(transform));
+    instance.transformIT = glm::transpose(glm::inverse(transform));
     instance.txtOffset   = static_cast<uint32_t>(m_textures.size());
 
     ObjModel model;
@@ -719,7 +719,7 @@ void HelloVulkan::createSpheres() {
     // All spheres
     Sphere s;
     for (uint32_t i = 0; i < 2000000; i++) {
-        s.center = nvmath::vec3f(xzd(gen), yd(gen), xzd(gen));
+        s.center = glm::vec3(xzd(gen), yd(gen), xzd(gen));
         s.radius = radd(gen);
         m_spheres.emplace_back(s);
     }
@@ -728,8 +728,8 @@ void HelloVulkan::createSpheres() {
     std::vector<Aabb> aabbs;
     for (const auto& s : m_spheres) {
         Aabb aabb;
-        aabb.minimum = s.center - nvmath::vec3f(s.radius);
-        aabb.maximum = s.center + nvmath::vec3f(s.radius);
+        aabb.minimum = s.center - glm::vec3(s.radius);
+        aabb.maximum = s.center + glm::vec3(s.radius);
         aabbs.emplace_back(aabb);
     }
 
@@ -789,7 +789,9 @@ void HelloVulkan::createTopLevelAS() {
     tlas.reserve(m_objInstance.size());
     for (int i = 0; i < static_cast<int>(m_objInstance.size()); i++) {
         nvvk::RaytracingBuilderKHR::Instance rayInst;
-        rayInst.transform  = m_objInstance[i].transform;  // Position of the instance
+        //rayInst.transform  = m_objInstance[i].transform;  // Position of the instance
+        static_assert(sizeof rayInst.transform == sizeof m_objInstance[i].transform, "size unmatch");
+        memcpy(&rayInst.transform, &m_objInstance[i].transform, sizeof rayInst.transform);
         rayInst.instanceId = i;                           // gl_InstanceID
         rayInst.blasId     = m_objInstance[i].objIndex;
         rayInst.hitGroupId = 0;  // We will use the same hit group for all objects
@@ -800,7 +802,9 @@ void HelloVulkan::createTopLevelAS() {
     // Add the blas containing all spheres
     {
         nvvk::RaytracingBuilderKHR::Instance rayInst;
-        rayInst.transform  = m_objInstance[0].transform;          // Position of the instance
+        //rayInst.transform  = m_objInstance[0].transform;          // Position of the instance
+        memcpy(&rayInst.transform, &m_objInstance[0].transform, sizeof rayInst.transform);
+
         rayInst.instanceId = static_cast<uint32_t>(tlas.size());  // gl_InstanceID
         rayInst.blasId     = static_cast<uint32_t>(m_objModel.size());
         rayInst.hitGroupId = 1;  // We will use the same hit group for all objects
@@ -1003,7 +1007,7 @@ void HelloVulkan::createRtShaderBindingTable() {
 //--------------------------------------------------------------------------------------------------
 // Ray Tracing the scene
 //
-void HelloVulkan::raytrace(const vk::CommandBuffer& cmdBuf, const nvmath::vec4f& clearColor) {
+void HelloVulkan::raytrace(const vk::CommandBuffer& cmdBuf, const glm::vec4& clearColor) {
     m_debug.beginLabel(cmdBuf, "Ray trace");
     // Initializing push constant values
     m_rtPushConstants.clearColor     = clearColor;
