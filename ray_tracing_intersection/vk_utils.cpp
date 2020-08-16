@@ -1,5 +1,7 @@
 #include "vk_utils.h"
 
+#include "nvvk/commands_vk.hpp"
+
 #include "logging.h"
 
 namespace {
@@ -12,30 +14,16 @@ using Writer    = vk::WriteDescriptorSet;
 
 namespace vkpbr {
 
-void test()
-{
-    {
-
-    UniqueMemoryAllocator *allocator = new UniqueMemoryAllocator();
-
-    }
-    int y = 0;
-}
-
-void tes2() {
-    vk::PhysicalDeviceMemoryProperties gpu_mem_prop;
-}
-
-CommandPool::CommandPool(const vk::Device& device, u32 queue_index,
+CommandPool::CommandPool(const vk::Device& device, u32 queue_family_index,
                          vk::CommandPoolCreateFlags flags, vk::Queue default_queue)
     : device_(device)
-    , queue_index_(queue_index)
-    , default_queue_(default_queue ? default_queue : device.getQueue(queue_index, 0))
+    , default_queue_(default_queue ? default_queue : device.getQueue(queue_family_index, 0))
 {
     CHECK(device);
 
-    auto cmd_pool_ci = vk::CommandPoolCreateInfo().setFlags(flags).setQueueFamilyIndex(queue_index);
-    cmd_pool_        = device_.createCommandPool(cmd_pool_ci);
+    auto cmd_pool_ci =
+        vk::CommandPoolCreateInfo().setFlags(flags).setQueueFamilyIndex(queue_family_index);
+    cmd_pool_ = device_.createCommandPool(cmd_pool_ci);
 }
 CommandPool::~CommandPool()
 {
@@ -53,7 +41,7 @@ vk::CommandBuffer CommandPool::MakeCmdBuffer(
                               .setCommandPool(cmd_pool_)
                               .setCommandBufferCount(1);
 
-    auto cmd_buffer = device_.allocateCommandBuffers(cmd_pool_).front();
+    auto cmd_buffer = device_.allocateCommandBuffers(cmd_alloc_info).front();
     if (begin) {
         auto begin_info =
             vk::CommandBufferBeginInfo().setFlags(usage).setPInheritanceInfo(p_inheritance_info);
@@ -68,10 +56,14 @@ void CommandPool::SubmitAndWait(vk::ArrayProxy<const vk::CommandBuffer> cmds, vk
     for (auto& cmd : cmds)
         cmd.end();
 
+    if (!queue)
+        queue = default_queue_;
+    CHECK(queue);
     auto submit_info =
         vk::SubmitInfo().setPCommandBuffers(cmds.data()).setCommandBufferCount(cmds.size());
     try {
         queue.submit(submit_info, /*fence =*/nullptr);
+        queue.waitIdle();
     } catch (std::exception& e) {
         LOG(FATAL) << "command buffer submit failed" << e.what();
     }
@@ -326,12 +318,24 @@ void RaytracingBuilder::Setup(const vk::Device& device, const UniqueMemoryAlloca
     queue_index_ = queue_index;
 }
 
+void RaytracingBuilder::Destroy()
+{
+    for (auto& blas : blases_) {
+        blas.accel_struct.DestroyFrom(device_);
+    }
+    tlas_.accel_struct.DestroyFrom(device_);
+    instance_buffer_.DestroyFrom(device_);
+    blases_.clear();
+    tlas_ = {};
+}
+
 void RaytracingBuilder::BuildBlas(const std::vector<Blas>& blases, BuildASFlags flags)
 {
     blases_ = blases;
 
     vk::DeviceSize max_scratch   = 0;
     bool           do_compaction = FlagsMatch(flags, BuildASFlagBits::eAllowCompaction);
+    LOG(INFO) << (do_compaction ? "yes" : "no");
 
     std::vector<vk::DeviceSize> original_sizes;
     original_sizes.reserve(blases_.size());
@@ -367,6 +371,9 @@ void RaytracingBuilder::BuildBlas(const std::vector<Blas>& blases, BuildASFlags 
         mem_requirements_2 =
             device_.getAccelerationStructureMemoryRequirementsKHR(mem_requirements_info);
         original_sizes.push_back(mem_requirements_2.memoryRequirements.size);
+
+        LOG(INFO) << "scratch/original/max size = " << scratch_size << '/' << original_sizes.back()
+                  << '/' << max_scratch;
     }
 
     UniqueMemoryBuffer scratch_buffer =
@@ -382,13 +389,16 @@ void RaytracingBuilder::BuildBlas(const std::vector<Blas>& blases, BuildASFlags 
     auto query_pool = device_.createQueryPool(query_pool_ci);
 
     // Creates a command buffer containing all the BLAS builds.
-    vkpbr::CommandPool             cmd_pool(device_, queue_index_);
-    std::vector<vk::CommandBuffer> all_cmd_buffers;
+    // vkpbr::CommandPool             cmd_pool(device_, queue_index_);
+    std::vector<VkCommandBuffer> all_cmd_buffers;
     all_cmd_buffers.reserve(blases_.size());
 
+    nvvk::CommandPool cmdGen(device_, queue_index_);
+
     for (size_t i = 0; i < blases_.size(); ++i) {
-        const auto blas       = blases_[i];
-        auto       cmd_buffer = cmd_pool.MakeCmdBuffer();
+        const auto blas = blases_[i];
+        // auto       cmd_buffer = cmd_pool.MakeCmdBuffer();
+        auto cmd_buffer = cmdGen.createCommandBuffer();
         all_cmd_buffers.push_back(cmd_buffer);
 
         const auto& p_geometry              = blas.as_geometry.data();
@@ -407,25 +417,40 @@ void RaytracingBuilder::BuildBlas(const std::vector<Blas>& blases, BuildASFlags 
         for (size_t i = 0; i < blas.as_build_offset_info.size(); ++i)
             p_build_offset.push_back(&blas.as_build_offset_info[i]);
 
-        cmd_buffer.buildAccelerationStructureKHR(bottom_AS_geometry_info, p_build_offset);
+        // cmd_buffer.buildAccelerationStructureKHR(bottom_AS_geometry_info, p_build_offset);
+        vkCmdBuildAccelerationStructureKHR(
+            cmd_buffer, 1,
+            reinterpret_cast<VkAccelerationStructureBuildGeometryInfoKHR*>(
+                &bottom_AS_geometry_info),
+            reinterpret_cast<const VkAccelerationStructureBuildOffsetInfoKHR**>(
+                p_build_offset.data()));
 
         // Uses a barrier to ensure one build is finished before starting the next one.
         auto barrier = vk::MemoryBarrier()
                            .setSrcAccessMask(vk::AccessFlagBits::eAccelerationStructureWriteKHR)
                            .setDstAccessMask(vk::AccessFlagBits::eAccelerationStructureReadKHR);
-        cmd_buffer.pipelineBarrier(vk::PipelineStageFlagBits::eAccelerationStructureBuildKHR,
-                                   vk::PipelineStageFlagBits::eAccelerationStructureBuildKHR,
-                                   /*dependency_flags =*/{}, barrier, nullptr, nullptr);
+        // cmd_buffer.pipelineBarrier(vk::PipelineStageFlagBits::eAccelerationStructureBuildKHR,
+        // vk::PipelineStageFlagBits::eAccelerationStructureBuildKHR,
+        ///*dependency_flags =*/{}, barrier, nullptr, nullptr);
+        vkCmdPipelineBarrier(cmd_buffer, VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR,
+                             VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR, 0, 1,
+                             &(barrier.operator const VkMemoryBarrier&()), 0, nullptr, 0, nullptr);
 
         if (do_compaction)
-            cmd_buffer.writeAccelerationStructuresPropertiesKHR(
-                blas.accel_struct.handle, vk::QueryType::eAccelerationStructureCompactedSizeKHR,
-                query_pool, i);
+            // cmd_buffer.writeAccelerationStructuresPropertiesKHR(
+            //    blas.accel_struct.handle, vk::QueryType::eAccelerationStructureCompactedSizeKHR,
+            //    query_pool, i);
+            vkCmdWriteAccelerationStructuresPropertiesKHR(
+                cmd_buffer, 1,
+                reinterpret_cast<const VkAccelerationStructureKHR*>(&blas.accel_struct.handle),
+                VK_QUERY_TYPE_ACCELERATION_STRUCTURE_COMPACTED_SIZE_KHR, query_pool, i);
     }
-    cmd_pool.SubmitAndWait(all_cmd_buffers);
+    cmdGen.submitAndWait(all_cmd_buffers);
+    // cmd_pool.SubmitAndWait(all_cmd_buffers);
     all_cmd_buffers.clear();
 
     if (do_compaction) {
+        CommandPool                 cmd_pool(device_, queue_index_);
         auto                        cmd_buffer = cmd_pool.MakeCmdBuffer();
         std::vector<vk::DeviceSize> compact_sizes(blases_.size());
         device_.getQueryPoolResults<vk::DeviceSize>(query_pool, 0, cast_u32(compact_sizes.size()),
@@ -683,7 +708,8 @@ void RaytracingBuilder::UpdateTlasMatrices(const std::vector<Instance>& instance
     device_.freeMemory(staging_buffer.memory);
 }
 
-void RaytracingBuilder::UpdateBlas(u32 blas_index) {
+void RaytracingBuilder::UpdateBlas(u32 blas_index)
+{
     Blas& blas = blases_[blas_index];
     auto  mem_requirements =
         device_
@@ -701,7 +727,7 @@ void RaytracingBuilder::UpdateBlas(u32 blas_index) {
     vk::DeviceAddress scratch_addr =
         device_.getBufferAddress(vk::BufferDeviceAddressInfo().setBuffer(scratch_buffer.handle));
 
-    const auto * p_geometry = blas.as_geometry.data();
+    const auto* p_geometry             = blas.as_geometry.data();
     auto        as_build_geometry_info = vk::AccelerationStructureBuildGeometryInfoKHR()
                                       .setType(vk::AccelerationStructureTypeKHR::eBottomLevel)
                                       .setFlags(blas.flags)
@@ -713,13 +739,13 @@ void RaytracingBuilder::UpdateBlas(u32 blas_index) {
                                       .setPpGeometries(&p_geometry);
     as_build_geometry_info.scratchData.deviceAddress = scratch_addr;
 
-    std::vector<const vk::AccelerationStructureBuildOffsetInfoKHR *> p_build_offset(
+    std::vector<const vk::AccelerationStructureBuildOffsetInfoKHR*> p_build_offset(
         blas.as_build_offset_info.size());
     for (size_t i = 0; i < blas.as_build_offset_info.size(); ++i)
         p_build_offset[i] = &blas.as_build_offset_info[i];
 
     // Updates the instance buffer on the device and builds the BLAS.
-    CommandPool cmd_pool(device_, queue_index_);
+    CommandPool       cmd_pool(device_, queue_index_);
     vk::CommandBuffer cmd_buffer = cmd_pool.MakeCmdBuffer();
 
     cmd_buffer.buildAccelerationStructureKHR(as_build_geometry_info, p_build_offset);

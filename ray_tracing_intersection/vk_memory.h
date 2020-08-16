@@ -23,6 +23,7 @@ struct UniqueMemoryBuffer {
 struct UniqueMemoryAccelStruct {
     vk::AccelerationStructureKHR handle;
     vk::DeviceMemory             memory;
+    void                         DestroyFrom(const vk::Device & device);
 };
 
 // Computes number of bytes occupied by the data in the container.

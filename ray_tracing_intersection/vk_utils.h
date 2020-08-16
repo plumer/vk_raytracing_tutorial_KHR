@@ -42,7 +42,7 @@ class CommandPool
   private:
     const vk::Device& device_;
     const vk::Queue   default_queue_;
-    u32               queue_index_ = 0;
+    //u32               queue_index_ = 0;
 
     vk::CommandPool cmd_pool_;
 };
@@ -172,6 +172,8 @@ class RaytracingBuilder
 
     // Refits the BLAS from updated buffers.
     void UpdateBlas(u32 blas_index);
+
+    vk::AccelerationStructureKHR AccelStruct() const { return tlas_.accel_struct.handle; }
 
 
   private:

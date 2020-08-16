@@ -129,4 +129,16 @@ void UniqueMemoryBuffer::DestroyFrom(const vk::Device& device)
     }
 }
 
+void UniqueMemoryAccelStruct::DestroyFrom(const vk::Device& device) {
+    if (handle) {
+        CHECK(memory) << "a non-null accel struct should be paired with a non-null memory";
+        device.destroyAccelerationStructureKHR(handle);
+        device.freeMemory(memory);
+        handle = nullptr;
+        memory = nullptr;
+    } else {
+        CHECK(!memory) << "a null accel struct should be paired with a null memory";
+    }
+}
+
 }  // namespace vkpbr
