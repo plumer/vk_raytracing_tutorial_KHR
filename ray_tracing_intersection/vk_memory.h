@@ -23,7 +23,21 @@ struct UniqueMemoryBuffer {
 struct UniqueMemoryAccelStruct {
     vk::AccelerationStructureKHR handle;
     vk::DeviceMemory             memory;
-    void                         DestroyFrom(const vk::Device & device);
+    void                         DestroyFrom(const vk::Device& device);
+};
+
+struct UniqueMemoryImage {
+    vk::Image        handle;
+    vk::DeviceMemory memory;
+    void             DestroyFrom(const vk::Device& device);
+};
+
+struct UniqueMemoryTexture {
+    vk::Image handle;
+    vk::DeviceMemory memory;
+    vk::DescriptorImageInfo descriptor;
+
+    void DestroyFrom(const vk::Device& device);
 };
 
 // Computes number of bytes occupied by the data in the container.
@@ -41,17 +55,21 @@ inline size_t DataSize(const std::vector<T>& std_vector)
 class UniqueMemoryAllocator
 {
   public:
-    UniqueMemoryAllocator() = default;
-    UniqueMemoryAllocator(const UniqueMemoryAllocator &) = delete;
+    UniqueMemoryAllocator()                             = default;
+    UniqueMemoryAllocator(const UniqueMemoryAllocator&) = delete;
     UniqueMemoryAllocator& operator=(const UniqueMemoryAllocator&) = delete;
-    ~UniqueMemoryAllocator() { ReleaseAllStagingBuffers() ;}
+    ~UniqueMemoryAllocator() { ReleaseAllStagingBuffers(); }
 
-    void Setup(const vk::Device &device, const vk::PhysicalDevice &gpu);
+    void Setup(const vk::Device& device, const vk::PhysicalDevice& gpu);
     bool ReadyToUse() const { return device_ && gpu_; }
     void ReleaseAllStagingBuffers();
 
     UniqueMemoryAccelStruct MakeAccelStruct(
         const vk::AccelerationStructureCreateInfoKHR& accel_struct_ci) const;
+
+    // Buffers
+    // --------------------------------------------------------------------------------------------
+
     UniqueMemoryBuffer MakeBuffer(
         vk::DeviceSize size, vk::BufferUsageFlags usage,
         vk::MemoryPropertyFlags memory_usage = vk::MemoryPropertyFlagBits::eDeviceLocal) const;
@@ -88,14 +106,30 @@ class UniqueMemoryAllocator
         return result_buffer;
     }
 
+    // Images
+    // --------------------------------------------------------------------------------------------
+
+    UniqueMemoryImage MakeImage(const vk::ImageCreateInfo& image_ci,
+                                vk::MemoryPropertyFlags = vk::MemoryPropertyFlagBits::eDeviceLocal);
+
+    UniqueMemoryImage MakeImage(const vk::CommandBuffer& cmd_buffer, size_t size, const void* data,
+                                const vk::ImageCreateInfo& image_ci,
+                                const vk::ImageLayout = vk::ImageLayout::eShaderReadOnlyOptimal);
+
+    // Textures
+    // --------------------------------------------------------------------------------------------
+    UniqueMemoryTexture MakeTexture(const UniqueMemoryImage&       image,
+                                    const vk::ImageViewCreateInfo& image_view_ci,
+                                    const vk::SamplerCreateInfo&   sampler_ci);
+
+
     u32 GetMemoryTypeIndex(u32 type_bits, vk::MemoryPropertyFlags desired_properties) const;
 
   private:
-    vk::Device                         device_;
-    vk::PhysicalDevice                 gpu_;
-    mutable std::vector<UniqueMemoryBuffer>    staging_buffers_;
+    vk::Device                              device_;
+    vk::PhysicalDevice                      gpu_;
+    mutable std::vector<UniqueMemoryBuffer> staging_buffers_;
 };
-
 
 
 }  // namespace vkpbr

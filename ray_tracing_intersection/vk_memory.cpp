@@ -2,6 +2,80 @@
 
 #include "logging.h"
 
+namespace {
+
+vk::AccessFlags AccessFlagsForImageLayout(vk::ImageLayout layout)
+{
+    switch (layout) {
+        case vk::ImageLayout::ePreinitialized:
+            return vk::AccessFlagBits::eHostWrite;
+        case vk::ImageLayout::eTransferDstOptimal:
+            return vk::AccessFlagBits::eTransferWrite;
+        case vk::ImageLayout::eTransferSrcOptimal:
+            return vk::AccessFlagBits::eTransferRead;
+        case vk::ImageLayout::eColorAttachmentOptimal:
+            return vk::AccessFlagBits::eColorAttachmentWrite;
+        case vk::ImageLayout::eDepthStencilAttachmentOptimal:
+            return vk::AccessFlagBits::eDepthStencilAttachmentWrite;
+        case vk::ImageLayout::eShaderReadOnlyOptimal:
+            return vk::AccessFlagBits::eShaderRead;
+        default:
+            return vk::AccessFlags();
+    }
+}
+
+vk::PipelineStageFlags PipelineStageForLayout(vk::ImageLayout layout)
+{
+    switch (layout) {
+        case vk::ImageLayout::eTransferDstOptimal:
+        case vk::ImageLayout::eTransferSrcOptimal:
+            return vk::PipelineStageFlagBits::eTransfer;
+        case vk::ImageLayout::eColorAttachmentOptimal:
+            return vk::PipelineStageFlagBits::eColorAttachmentOutput;
+        case vk::ImageLayout::eDepthStencilAttachmentOptimal:
+            return vk::PipelineStageFlagBits::eEarlyFragmentTests;
+        case vk::ImageLayout::eShaderReadOnlyOptimal:
+            return vk::PipelineStageFlagBits::eFragmentShader;
+        case vk::ImageLayout::ePreinitialized:
+            return vk::PipelineStageFlagBits::eHost;
+        case vk::ImageLayout::eUndefined:
+            return vk::PipelineStageFlagBits::eTopOfPipe;
+        default:
+            return vk::PipelineStageFlagBits::eBottomOfPipe;
+    }
+}
+
+void CmdBarrierImageLayout(vk::CommandBuffer cmd_buffer, vk::Image image,
+                           vk::ImageLayout old_layout, vk::ImageLayout new_layout,
+                           const vk::ImageSubresourceRange& sub_range)
+{
+    auto image_memory_barrier = vk::ImageMemoryBarrier()
+                                    .setOldLayout(old_layout)
+                                    .setNewLayout(new_layout)
+                                    .setImage(image)
+                                    .setSubresourceRange(sub_range)
+                                    .setSrcAccessMask(AccessFlagsForImageLayout(old_layout))
+                                    .setDstAccessMask(AccessFlagsForImageLayout(new_layout));
+    vk::PipelineStageFlags src_stage = PipelineStageForLayout(old_layout);
+    vk::PipelineStageFlags dst_stage = PipelineStageForLayout(new_layout);
+
+    cmd_buffer.pipelineBarrier(src_stage, dst_stage, {}, nullptr, nullptr, image_memory_barrier);
+}
+
+void CmdBarrierImageLayout(vk::CommandBuffer cmd_buffer, vk::Image image,
+                           vk::ImageLayout old_layout, vk::ImageLayout new_layout,
+                           vk::ImageAspectFlags aspect_mask)
+{
+    auto subresource_range = vk::ImageSubresourceRange()
+                                 .setAspectMask(aspect_mask)
+                                 .setLevelCount(1)
+                                 .setLayerCount(1)
+                                 .setBaseMipLevel(0)
+                                 .setBaseArrayLayer(0);
+    CmdBarrierImageLayout(cmd_buffer, image, old_layout, new_layout, subresource_range);
+}
+}  // namespace
+
 namespace vkpbr {
 
 void UniqueMemoryAllocator::Setup(const vk::Device& device, const vk::PhysicalDevice& gpu)
@@ -10,6 +84,99 @@ void UniqueMemoryAllocator::Setup(const vk::Device& device, const vk::PhysicalDe
     gpu_    = gpu;
 }
 
+
+UniqueMemoryImage UniqueMemoryAllocator::MakeImage(const vk::ImageCreateInfo& image_ci,
+                                                   vk::MemoryPropertyFlags    memory_usage)
+{
+    UniqueMemoryImage result;
+
+    result.handle = device_.createImage(image_ci);
+
+    vk::MemoryRequirements2          memory_requirements;
+    vk::MemoryDedicatedRequirements  dedicated_requirements;
+    vk::ImageMemoryRequirementsInfo2 image_requirements_info;
+
+    image_requirements_info.image = result.handle;
+    memory_requirements.pNext     = &dedicated_requirements;
+    memory_requirements           = device_.getImageMemoryRequirements2(image_requirements_info);
+
+    // Allocates memory.
+    auto memory_alloc_info =
+        vk::MemoryAllocateInfo()
+            .setAllocationSize(memory_requirements.memoryRequirements.size)
+            .setMemoryTypeIndex(GetMemoryTypeIndex(
+                memory_requirements.memoryRequirements.memoryTypeBits, memory_usage));
+    result.memory = device_.allocateMemory(memory_alloc_info);
+    CHECK(result.memory);
+
+    // Binds memory to image.
+    device_.bindImageMemory(result.handle, result.memory, /*offset = */ 0);
+
+    return result;
+}
+
+UniqueMemoryImage UniqueMemoryAllocator::MakeImage(const vk::CommandBuffer& cmd_buffer, size_t size,
+                                                   const void*                data,
+                                                   const vk::ImageCreateInfo& image_ci,
+                                                   const vk::ImageLayout      layout)
+{
+    UniqueMemoryImage result = MakeImage(image_ci, vk::MemoryPropertyFlagBits::eDeviceLocal);
+
+    if (data != nullptr) {
+        UniqueMemoryBuffer staging_buffer = MakeBuffer(
+            size, vk::BufferUsageFlagBits::eTransferSrc,
+            vk::MemoryPropertyFlagBits::eHostCoherent | vk::MemoryPropertyFlagBits::eHostVisible);
+        staging_buffers_.push_back(staging_buffer);
+
+        // Copies data to the staging buffer.
+        void* mapped = device_.mapMemory(staging_buffer.memory, /*offset = */ 0, size);
+        memcpy(mapped, data, size);
+        device_.unmapMemory(staging_buffer.memory);
+
+        // Copies buffer to the image.
+        auto subresource_range = vk::ImageSubresourceRange()
+                                     .setAspectMask(vk::ImageAspectFlagBits::eColor)
+                                     .setBaseArrayLayer(0)
+                                     .setBaseMipLevel(0)
+                                     .setLayerCount(1)
+                                     .setLevelCount(image_ci.mipLevels);
+        // TODO barrier image layout
+        CmdBarrierImageLayout(cmd_buffer, result.handle, vk::ImageLayout::eUndefined,
+                              vk::ImageLayout::eTransferDstOptimal, subresource_range);
+
+        auto buffer_copy_region = vk::BufferImageCopy().setImageExtent(image_ci.extent);
+        buffer_copy_region.imageSubresource.setAspectMask(vk::ImageAspectFlagBits::eColor)
+            .setLayerCount(1);
+        cmd_buffer.copyBufferToImage(staging_buffer.handle, result.handle,
+                                     vk::ImageLayout::eTransferDstOptimal, buffer_copy_region);
+
+        // Sets final image layout.
+        subresource_range.setLevelCount(1);
+        CmdBarrierImageLayout(cmd_buffer, result.handle, vk::ImageLayout::eTransferDstOptimal,
+                              layout, subresource_range);
+    } else {
+        CmdBarrierImageLayout(cmd_buffer, result.handle, vk::ImageLayout::eUndefined, layout,
+                              vk::ImageAspectFlagBits::eColor);
+    }
+    return result;
+}
+
+UniqueMemoryTexture UniqueMemoryAllocator::MakeTexture(const UniqueMemoryImage&       image,
+                                                       const vk::ImageViewCreateInfo& image_view_ci,
+                                                       const vk::SamplerCreateInfo&   sampler_ci)
+{
+    UniqueMemoryTexture result;
+    result.handle                 = image.handle;
+    result.memory                 = image.memory;
+    result.descriptor.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
+
+    CHECK_EQ(image_view_ci.image, result.handle);
+    result.descriptor.imageView = device_.createImageView(image_view_ci);
+
+    //if (sampler_ci.flags != vk::SamplerCreateFlags()) {}
+    result.descriptor.sampler = device_.createSampler(sampler_ci);
+    return result;
+}
 
 u32 UniqueMemoryAllocator::GetMemoryTypeIndex(u32                     type_bits,
                                               vk::MemoryPropertyFlags desired_properties) const
@@ -38,7 +205,8 @@ u32 UniqueMemoryAllocator::GetMemoryTypeIndex(u32                     type_bits,
     return ~0u;
 }
 
-void UniqueMemoryAllocator::ReleaseAllStagingBuffers() {
+void UniqueMemoryAllocator::ReleaseAllStagingBuffers()
+{
     for (auto& buffer : staging_buffers_) {
         buffer.DestroyFrom(device_);
     }
@@ -129,7 +297,8 @@ void UniqueMemoryBuffer::DestroyFrom(const vk::Device& device)
     }
 }
 
-void UniqueMemoryAccelStruct::DestroyFrom(const vk::Device& device) {
+void UniqueMemoryAccelStruct::DestroyFrom(const vk::Device& device)
+{
     if (handle) {
         CHECK(memory) << "a non-null accel struct should be paired with a non-null memory";
         device.destroyAccelerationStructureKHR(handle);
@@ -139,6 +308,22 @@ void UniqueMemoryAccelStruct::DestroyFrom(const vk::Device& device) {
     } else {
         CHECK(!memory) << "a null accel struct should be paired with a null memory";
     }
+}
+
+void UniqueMemoryImage::DestroyFrom(const vk::Device& device)
+{
+    device.destroyImage(handle);
+    device.freeMemory(memory);
+}
+
+void UniqueMemoryTexture::DestroyFrom(const vk::Device& device)
+{
+    device.destroyImage(handle);
+    device.freeMemory(memory);
+    if (descriptor.sampler)
+        device.destroySampler(descriptor.sampler);
+    if (descriptor.imageView) 
+        device.destroyImageView(descriptor.imageView);
 }
 
 }  // namespace vkpbr

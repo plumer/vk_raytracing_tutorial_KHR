@@ -310,15 +310,15 @@ vk::WriteDescriptorSet DescriptorSetBindings::MakeWriteArray(
     return ds_write;
 }
 
-void RaytracingBuilder::Setup(const vk::Device& device, const UniqueMemoryAllocator* allocator,
-                              u32 queue_index)
+void BuggyRaytracingBuilder::Setup(const vk::Device& device, const UniqueMemoryAllocator* allocator,
+                                   u32 queue_index)
 {
     device_      = device;
     allocator_   = allocator;
     queue_index_ = queue_index;
 }
 
-void RaytracingBuilder::Destroy()
+void BuggyRaytracingBuilder::Destroy()
 {
     for (auto& blas : blases_) {
         blas.accel_struct.DestroyFrom(device_);
@@ -329,7 +329,7 @@ void RaytracingBuilder::Destroy()
     tlas_ = {};
 }
 
-void RaytracingBuilder::BuildBlas(const std::vector<Blas>& blases, BuildASFlags flags)
+void BuggyRaytracingBuilder::BuildBlas(const std::vector<Blas>& blases, BuildASFlags flags)
 {
     blases_ = blases;
 
@@ -502,7 +502,7 @@ void RaytracingBuilder::BuildBlas(const std::vector<Blas>& blases, BuildASFlags 
     // allocator->finalizereleaseStaging
 }
 
-vk::AccelerationStructureInstanceKHR RaytracingBuilder::InstanceToVkGeometryInstanceKHR(
+vk::AccelerationStructureInstanceKHR BuggyRaytracingBuilder::InstanceToVkGeometryInstanceKHR(
     const Instance& instance)
 {
     Blas& blas = blases_[instance.blas_id];
@@ -528,7 +528,7 @@ vk::AccelerationStructureInstanceKHR RaytracingBuilder::InstanceToVkGeometryInst
     return vi_instance;
 }
 
-void RaytracingBuilder::BuildTlas(const std::vector<Instance>& instances, BuildASFlags flags)
+void BuggyRaytracingBuilder::BuildTlas(const std::vector<Instance>& instances, BuildASFlags flags)
 {
     tlas_.flags = flags;
 
@@ -618,7 +618,7 @@ void RaytracingBuilder::BuildTlas(const std::vector<Instance>& instances, BuildA
     device_.freeMemory(scratch_buffer.memory);
 }
 
-void RaytracingBuilder::UpdateTlasMatrices(const std::vector<Instance>& instances)
+void BuggyRaytracingBuilder::UpdateTlasMatrices(const std::vector<Instance>& instances)
 {
     using vkBU = vk::BufferUsageFlagBits;
     using vkMP = vk::MemoryPropertyFlagBits;
@@ -708,7 +708,7 @@ void RaytracingBuilder::UpdateTlasMatrices(const std::vector<Instance>& instance
     device_.freeMemory(staging_buffer.memory);
 }
 
-void RaytracingBuilder::UpdateBlas(u32 blas_index)
+void BuggyRaytracingBuilder::UpdateBlas(u32 blas_index)
 {
     Blas& blas = blases_[blas_index];
     auto  mem_requirements =
@@ -755,5 +755,70 @@ void RaytracingBuilder::UpdateBlas(u32 blas_index)
     device_.freeMemory(scratch_buffer.memory);
 }
 
+
+void CmdGenerateMipmaps(vk::CommandBuffer cmd_buffer, const vk::Image& image,
+                        vk::Format image_format, const vk::Extent2D& size, uint32_t mipLevels)
+{
+    using vkPS   = vk::PipelineStageFlagBits;
+    auto barrier = vk::ImageMemoryBarrier()
+                       .setImage(image)
+                       .setOldLayout(vk::ImageLayout::eShaderReadOnlyOptimal)
+                       .setNewLayout(vk::ImageLayout::eTransferSrcOptimal)
+                       .setDstAccessMask(vk::AccessFlagBits::eTransferRead);
+    barrier.subresourceRange.setBaseArrayLayer(0)
+        .setAspectMask(vk::ImageAspectFlagBits::eColor)
+        .setBaseMipLevel(0)
+        .setLayerCount(1)
+        .setLevelCount(1);
+
+    cmd_buffer.pipelineBarrier(vkPS::eTransfer, vkPS::eTransfer, {}, nullptr, nullptr, barrier);
+    i32 mip_width  = size.width;
+    i32 mip_height = size.height;
+
+    for (u32 i = 1; i < mipLevels; ++i) {
+        auto blit          = vk::ImageBlit();
+        blit.srcOffsets[0] = vk::Offset3D{0, 0, 0};
+        blit.srcOffsets[1] = vk::Offset3D{mip_width, mip_height, 1};
+        blit.dstOffsets[0] = vk::Offset3D{0, 0, 0};
+        blit.dstOffsets[1] =
+            vk::Offset3D{mip_width > 1 ? mip_width / 2 : 1, mip_height > 1 ? mip_height / 2 : 1, 1};
+        blit.srcSubresource = vk::ImageSubresourceLayers(vk::ImageAspectFlagBits::eColor)
+                                  .setMipLevel(i - 1)
+                                  .setBaseArrayLayer(0)
+                                  .setLayerCount(1);
+        blit.dstSubresource = blit.srcSubresource;
+        blit.dstSubresource.setMipLevel(i);
+
+        cmd_buffer.blitImage(image, vk::ImageLayout::eTransferSrcOptimal, image,
+                             vk::ImageLayout::eTransferDstOptimal, blit, vk::Filter::eLinear);
+
+        // Next level..
+        if (i + 1 < mipLevels) {
+            barrier.subresourceRange.baseMipLevel = i;
+            barrier.setOldLayout(vk::ImageLayout::eTransferDstOptimal)
+                .setNewLayout(vk::ImageLayout::eTransferSrcOptimal)
+                .setSrcAccessMask(vk::AccessFlagBits::eTransferWrite)
+                .setDstAccessMask(vk::AccessFlagBits::eTransferRead);
+            cmd_buffer.pipelineBarrier(vkPS::eTransfer, vkPS::eTransfer, {}, nullptr, nullptr,
+                                       barrier);
+        }
+
+        if (mip_width > 1)
+            mip_width /= 2;
+        if (mip_height > 1)
+            mip_height /= 2;
+    }
+
+    // Transitions all mip levels into a shader read-only optimal layout.
+    barrier.subresourceRange.setBaseMipLevel(0).setLevelCount(mipLevels);
+    barrier.setOldLayout(vk::ImageLayout::eUndefined)
+        .setNewLayout(vk::ImageLayout::eShaderReadOnlyOptimal)
+        .setSrcAccessMask({})
+        .setDstAccessMask(vk::AccessFlagBits::eShaderRead);
+    cmd_buffer.pipelineBarrier(vkPS::eTransfer, vkPS::eFragmentShader, {}, nullptr, nullptr,
+                               barrier);
+
+    return;
+}
 
 }  // namespace vkpbr

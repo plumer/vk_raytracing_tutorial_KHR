@@ -64,7 +64,7 @@ void HelloVulkan::Setup(const vk::Instance& instance, const vk::Device& device,
                         const vk::PhysicalDevice& physicalDevice, u32 queueFamily)
 {
     AppBase::Setup(instance, device, physicalDevice, queueFamily);
-    m_alloc.init(device, physicalDevice);
+    // m_alloc.init(device, physicalDevice);
     allocator_.Setup(device, physicalDevice);
     CHECK(allocator_.ReadyToUse());
     m_debug.setup(device_);
@@ -249,8 +249,6 @@ void HelloVulkan::LoadModel(const std::string& filename, glm::mat4 transform)
     model.nbVertices = static_cast<uint32_t>(loader.m_vertices.size());
 
     // Create the buffers on Device and copy vertices, indices and materials
-    // nvvk::CommandPool cmdBufGet(device_, graphics_queue_index_);
-    // vk::CommandBuffer cmdBuf = cmdBufGet.createCommandBuffer();
     vkpbr::CommandPool cmd_pool(device_, graphics_queue_index_);
     vk::CommandBuffer  cmdBuf = cmd_pool.MakeCmdBuffer();
 
@@ -264,10 +262,8 @@ void HelloVulkan::LoadModel(const std::string& filename, glm::mat4 transform)
     model.matIndexBuffer = allocator_.MakeBuffer(cmdBuf, loader.m_matIndx, vkBU::eStorageBuffer);
     // Creates all textures found
     BuildTextureImages(cmdBuf, loader.m_textures);
-    // cmdBufGet.submitAndWait(cmdBuf);
     cmd_pool.SubmitAndWait(cmdBuf);
     allocator_.ReleaseAllStagingBuffers();
-    m_alloc.finalizeAndReleaseStaging();
 
     std::string objNb = std::to_string(instance.objIndex);
     m_debug.setObjectName(model.vertexBuffer.handle, (std::string("vertex_" + objNb).c_str()));
@@ -327,7 +323,7 @@ void HelloVulkan::BuildTextureImages(const vk::CommandBuffer&        cmdBuf,
 
     // If no textures are present, create a dummy one to accommodate the pipeline layout
     if (textures.empty() && m_textures.empty()) {
-        nvvk::Texture texture;
+        vkpbr::UniqueMemoryTexture texture;
 
         std::array<uint8_t, 4> color{255u, 255u, 255u, 255u};
         vk::DeviceSize         bufferSize      = sizeof(color);
@@ -335,13 +331,16 @@ void HelloVulkan::BuildTextureImages(const vk::CommandBuffer&        cmdBuf,
         auto                   imageCreateInfo = nvvk::makeImage2DCreateInfo(imgSize, format);
 
         // Creating the dummy texure
-        nvvk::Image image = m_alloc.createImage(cmdBuf, bufferSize, color.data(), imageCreateInfo);
+        vkpbr::UniqueMemoryImage image =
+            allocator_.MakeImage(cmdBuf, bufferSize, color.data(), imageCreateInfo);
+
         vk::ImageViewCreateInfo ivInfo =
-            nvvk::makeImageViewCreateInfo(image.image, imageCreateInfo);
-        texture = m_alloc.createTexture(image, ivInfo, samplerCreateInfo);
+            nvvk::makeImageViewCreateInfo(image.handle, imageCreateInfo);
+        texture = allocator_.MakeTexture(image, ivInfo, samplerCreateInfo);
+        CHECK(texture.descriptor.sampler);
 
         // The image format must be in VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
-        nvvk::cmdBarrierImageLayout(cmdBuf, texture.image, vk::ImageLayout::eUndefined,
+        nvvk::cmdBarrierImageLayout(cmdBuf, texture.handle, vk::ImageLayout::eUndefined,
                                     vk::ImageLayout::eShaderReadOnlyOptimal);
         m_textures.push_back(texture);
     } else {
@@ -370,14 +369,21 @@ void HelloVulkan::BuildTextureImages(const vk::CommandBuffer&        cmdBuf,
                 nvvk::makeImage2DCreateInfo(imgSize, format, vkIU::eSampled, true);
 
             {
-                nvvk::ImageDedicated image =
-                    m_alloc.createImage(cmdBuf, bufferSize, pixels, imageCreateInfo);
-                nvvk::cmdGenerateMipmaps(cmdBuf, image.image, format, imgSize,
-                                         imageCreateInfo.mipLevels);
-                vk::ImageViewCreateInfo ivInfo =
-                    nvvk::makeImageViewCreateInfo(image.image, imageCreateInfo);
-                nvvk::Texture texture = m_alloc.createTexture(image, ivInfo, samplerCreateInfo);
-
+                vkpbr::UniqueMemoryImage image =
+                    allocator_.MakeImage(cmdBuf, bufferSize, pixels, imageCreateInfo);
+                vkpbr::CmdGenerateMipmaps(cmdBuf, image.handle, format, imgSize,
+                                          imageCreateInfo.mipLevels);
+                auto image_view_ci = vk::ImageViewCreateInfo()
+                                         .setImage(image.handle)
+                                         .setFormat(imageCreateInfo.format)
+                                         .setViewType(vk::ImageViewType::e2D);
+                image_view_ci.subresourceRange.setAspectMask(vk::ImageAspectFlagBits::eColor)
+                    .setBaseMipLevel(0)
+                    .setLevelCount(VK_REMAINING_MIP_LEVELS)
+                    .setBaseArrayLayer(0)
+                    .setLayerCount(VK_REMAINING_ARRAY_LAYERS);
+                vkpbr::UniqueMemoryTexture texture =
+                    allocator_.MakeTexture(image, image_view_ci, samplerCreateInfo);
                 m_textures.push_back(texture);
             }
         }
@@ -404,7 +410,7 @@ void HelloVulkan::destroyResources()
     }
 
     for (auto& t : m_textures) {
-        m_alloc.destroy(t);
+        t.DestroyFrom(device_);
     }
 
     //#Post
@@ -412,8 +418,8 @@ void HelloVulkan::destroyResources()
     device_.destroy(m_postPipelineLayout);
     device_.destroy(m_postDescPool);
     device_.destroy(m_postDescSetLayout);
-    m_alloc.destroy(m_offscreenColor);
-    m_alloc.destroy(m_offscreenDepth);
+    m_offscreenColor.DestroyFrom(device_);
+    m_offscreenDepth.DestroyFrom(device_);
     device_.destroy(m_offscreenRenderPass);
     device_.destroy(m_offscreenFramebuffer);
 
@@ -484,9 +490,6 @@ void HelloVulkan::WindowResizeCallback(int w, int h)
 //
 void HelloVulkan::createOffscreenRender()
 {
-    m_alloc.destroy(m_offscreenColor);
-    m_alloc.destroy(m_offscreenDepth);
-
     // Creating the color image
     {
         auto colorCreateInfo = nvvk::makeImage2DCreateInfo(window_size_, m_offscreenColorFormat,
@@ -494,12 +497,11 @@ void HelloVulkan::createOffscreenRender()
                                                                | vk::ImageUsageFlagBits::eSampled
                                                                | vk::ImageUsageFlagBits::eStorage);
 
-
-        nvvk::Image             image = m_alloc.createImage(colorCreateInfo);
-        vk::ImageViewCreateInfo ivInfo =
-            nvvk::makeImageViewCreateInfo(image.image, colorCreateInfo);
-        m_offscreenColor = m_alloc.createTexture(image, ivInfo, vk::SamplerCreateInfo());
-        m_offscreenColor.descriptor.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+        vkpbr::UniqueMemoryImage image = allocator_.MakeImage(colorCreateInfo);
+        vk::ImageViewCreateInfo  ivInfo =
+            nvvk::makeImageViewCreateInfo(image.handle, colorCreateInfo);
+        m_offscreenColor = allocator_.MakeTexture(image, ivInfo, vk::SamplerCreateInfo());
+        m_offscreenColor.descriptor.imageLayout = vk::ImageLayout::eGeneral;
     }
 
     // Creating the depth buffer
@@ -507,24 +509,24 @@ void HelloVulkan::createOffscreenRender()
         nvvk::makeImage2DCreateInfo(window_size_, m_offscreenDepthFormat,
                                     vk::ImageUsageFlagBits::eDepthStencilAttachment);
     {
-        nvvk::Image image = m_alloc.createImage(depthCreateInfo);
+        vkpbr::UniqueMemoryImage image = allocator_.MakeImage(depthCreateInfo);
 
         vk::ImageViewCreateInfo depthStencilView;
         depthStencilView.setViewType(vk::ImageViewType::e2D);
         depthStencilView.setFormat(m_offscreenDepthFormat);
         depthStencilView.setSubresourceRange({vk::ImageAspectFlagBits::eDepth, 0, 1, 0, 1});
-        depthStencilView.setImage(image.image);
+        depthStencilView.setImage(image.handle);
 
-        m_offscreenDepth = m_alloc.createTexture(image, depthStencilView);
+        m_offscreenDepth = allocator_.MakeTexture(image, depthStencilView, vk::SamplerCreateInfo{});
     }
 
     // Setting the image layout for both color and depth
     {
         vkpbr::CommandPool genCmdBuf(device_, graphics_queue_index_);
         auto               cmdBuf = genCmdBuf.MakeCmdBuffer();
-        nvvk::cmdBarrierImageLayout(cmdBuf, m_offscreenColor.image, vk::ImageLayout::eUndefined,
+        nvvk::cmdBarrierImageLayout(cmdBuf, m_offscreenColor.handle, vk::ImageLayout::eUndefined,
                                     vk::ImageLayout::eGeneral);
-        nvvk::cmdBarrierImageLayout(cmdBuf, m_offscreenDepth.image, vk::ImageLayout::eUndefined,
+        nvvk::cmdBarrierImageLayout(cmdBuf, m_offscreenDepth.handle, vk::ImageLayout::eUndefined,
                                     vk::ImageLayout::eDepthStencilAttachmentOptimal,
                                     vk::ImageAspectFlagBits::eDepth);
 
@@ -648,23 +650,13 @@ void HelloVulkan::initRayTracing()
     auto properties = gpu_.getProperties2<vk::PhysicalDeviceProperties2,
                                           vk::PhysicalDeviceRayTracingPropertiesKHR>();
     m_rtProperties  = properties.get<vk::PhysicalDeviceRayTracingPropertiesKHR>();
-#ifdef USE_VKPBR
     m_rtBuilder.setup(device_, &allocator_, graphics_queue_index_);
-#else
-    m_rtBuilder.setup(device_, &m_alloc, graphics_queue_index_);
-#endif
 }
 
 //--------------------------------------------------------------------------------------------------
 // Converting a OBJ primitive to the ray tracing geometry used for the BLAS
 //
-#ifdef USE_VKPBR
-vkpbr::RaytracingBuilderKHR
-#else
-nvvk::RaytracingBuilderKHR
-#endif
-    ::Blas
-    HelloVulkan::objectToVkGeometryKHR(const ObjModel& model)
+vkpbr::RaytracingBuilderKHR::Blas HelloVulkan::objectToVkGeometryKHR(const ObjModel& model)
 {
     vk::AccelerationStructureCreateGeometryTypeInfoKHR asCreate;
     asCreate.setGeometryType(vk::GeometryTypeKHR::eTriangles);
@@ -696,30 +688,17 @@ nvvk::RaytracingBuilderKHR
     offset.setPrimitiveOffset(0);
     offset.setTransformOffset(0);
 
-#ifndef USE_VKPBR
-    nvvk::RaytracingBuilderKHR::Blas blas;
-    blas.asGeometry.emplace_back(asGeom);
-    blas.asCreateGeometryInfo.emplace_back(asCreate);
-    blas.asBuildOffsetInfo.emplace_back(offset);
-#else
     vkpbr::RaytracingBuilderKHR::Blas blas;
     blas.asGeometry.emplace_back(asGeom);
     blas.asCreateGeometryInfo.emplace_back(asCreate);
     blas.asBuildOffsetInfo.emplace_back(offset);
-#endif
     return blas;
 }
 
 //--------------------------------------------------------------------------------------------------
 // Returning the ray tracing geometry used for the BLAS, containing all spheres
 //
-#ifdef USE_VKPBR
-vkpbr::RaytracingBuilderKHR
-#else
-nvvk::RaytracingBuilderKHR
-#endif
-    ::Blas
-    HelloVulkan::sphereToVkGeometryKHR()
+vkpbr::RaytracingBuilderKHR::Blas HelloVulkan::sphereToVkGeometryKHR()
 {
     vk::AccelerationStructureCreateGeometryTypeInfoKHR asCreate;
     asCreate.setGeometryType(vk::GeometryTypeKHR::eAabbs);
@@ -746,17 +725,11 @@ nvvk::RaytracingBuilderKHR
     offset.setPrimitiveCount(asCreate.maxPrimitiveCount);
     offset.setPrimitiveOffset(0);
     offset.setTransformOffset(0);
-#ifndef USE_VKPBR
-    nvvk::RaytracingBuilderKHR::Blas blas;
-    blas.asGeometry.emplace_back(asGeom);
-    blas.asCreateGeometryInfo.emplace_back(asCreate);
-    blas.asBuildOffsetInfo.emplace_back(offset);
-#else
+
     vkpbr::RaytracingBuilderKHR::Blas blas;
     blas.asGeometry.emplace_back(asGeom);
     blas.asCreateGeometryInfo.emplace_back(asCreate);
     blas.asBuildOffsetInfo.emplace_back(offset);
-#endif
     return blas;
 }
 
@@ -805,9 +778,6 @@ void HelloVulkan::createSpheres()
     // Creating all buffers
     using vkBU = vk::BufferUsageFlagBits;
 
-    // nvvk::CommandPool genCmdBuf(device_, graphics_queue_index_);
-    // auto              cmdBuf = genCmdBuf.createCommandBuffer();
-
     vkpbr::CommandPool cmd_pool(device_, graphics_queue_index_);
     auto               cmdBuf = cmd_pool.MakeCmdBuffer();
 
@@ -816,7 +786,6 @@ void HelloVulkan::createSpheres()
     m_spheresMatIndexBuffer = allocator_.MakeBuffer(cmdBuf, matIdx, vkBU::eStorageBuffer);
     m_spheresMatColorBuffer = allocator_.MakeBuffer(cmdBuf, materials, vkBU::eStorageBuffer);
     cmd_pool.SubmitAndWait(cmdBuf);
-    // genCmdBuf.submitAndWait(cmdBuf);
 
     // Debug information
     m_debug.setObjectName(m_spheresBuffer.handle, "spheres");
@@ -827,25 +796,7 @@ void HelloVulkan::createSpheres()
 
 void HelloVulkan::createBottomLevelAS()
 {
-// BLAS - Storing each primitive in a geometry
-#ifndef USE_VKPBR
-    std::vector<nvvk::RaytracingBuilderKHR::Blas> allBlas;
-    allBlas.reserve(m_objModel.size());
-    for (const auto& obj : m_objModel) {
-        auto blas = objectToVkGeometryKHR(obj);
-
-        // We could add more geometry in each BLAS, but we add only one for now
-        allBlas.emplace_back(blas);
-    }
-
-    // Spheres
-    {
-        auto blas = sphereToVkGeometryKHR();
-        allBlas.emplace_back(blas);
-    }
-
-    m_rtBuilder.buildBlas(allBlas, vk::BuildAccelerationStructureFlagBitsKHR::ePreferFastTrace);
-#else
+    // BLAS - Storing each primitive in a geometry
     std::vector<vkpbr::RaytracingBuilderKHR::Blas> all_blas;
     all_blas.reserve(m_objModel.size());
     for (const auto& obj : m_objModel) {
@@ -857,52 +808,20 @@ void HelloVulkan::createBottomLevelAS()
         all_blas.emplace_back(blas);
     }
     m_rtBuilder.buildBlas(all_blas, vk::BuildAccelerationStructureFlagBitsKHR::ePreferFastTrace);
-#endif
 }
 
 void HelloVulkan::createTopLevelAS()
 {
-#ifndef USE_VKPBR
-    std::vector<nvvk::RaytracingBuilderKHR::Instance> tlas;
-    tlas.reserve(m_objInstance.size());
-    for (int i = 0; i < static_cast<int>(m_objInstance.size()); i++) {
-        nvvk::RaytracingBuilderKHR::Instance rayInst;
-        // rayInst.transform  = m_objInstance[i].transform;  // Position of the instance
-        static_assert(sizeof rayInst.transform == sizeof m_objInstance[i].transform,
-                      "size "
-                      "unmatch");
-        memcpy(&rayInst.transform, &m_objInstance[i].transform, sizeof rayInst.transform);
-        rayInst.instanceId = i;  // gl_InstanceID
-        rayInst.blasId     = m_objInstance[i].objIndex;
-        rayInst.hitGroupId = 0;  // We will use the same hit group for all objects
-        rayInst.flags      = VK_GEOMETRY_INSTANCE_TRIANGLE_FACING_CULL_DISABLE_BIT_KHR;
-        tlas.emplace_back(rayInst);
-    }
 
-    // Add the blas containing all spheres
-    {
-        nvvk::RaytracingBuilderKHR::Instance rayInst;
-        // rayInst.transform  = m_objInstance[0].transform;          // Position of the instance
-        memcpy(&rayInst.transform, &m_objInstance[0].transform, sizeof rayInst.transform);
-
-        rayInst.instanceId = static_cast<uint32_t>(tlas.size());  // gl_InstanceID
-        rayInst.blasId     = static_cast<uint32_t>(m_objModel.size());
-        rayInst.hitGroupId = 1;  // We will use the same hit group for all objects
-        rayInst.flags      = VK_GEOMETRY_INSTANCE_TRIANGLE_FACING_CULL_DISABLE_BIT_KHR;
-        tlas.emplace_back(rayInst);
-    }
-
-    m_rtBuilder.buildTlas(tlas, vk::BuildAccelerationStructureFlagBitsKHR::ePreferFastTrace);
-#else
     std::vector<vkpbr::RaytracingBuilderKHR::Instance> tlas_instances;
     tlas_instances.reserve(m_objInstance.size());
     for (int i = 0; i < cast_i32(m_objInstance.size()); ++i) {
         vkpbr::RaytracingBuilderKHR::Instance instance;
         memcpy(&instance.transform, &m_objInstance[i].transform, sizeof instance.transform);
         instance.instanceId = i;
-        instance.blasId = m_objInstance[i].objIndex;
+        instance.blasId     = m_objInstance[i].objIndex;
         instance.hitGroupId = 0;
-        instance.flags = vk::GeometryInstanceFlagBitsKHR::eTriangleFacingCullDisable;
+        instance.flags      = vk::GeometryInstanceFlagBitsKHR::eTriangleFacingCullDisable;
         tlas_instances.push_back(instance);
     }
     {
@@ -910,14 +829,13 @@ void HelloVulkan::createTopLevelAS()
         memcpy(&sphere_instance.transform, &m_objInstance[0].transform,
                sizeof sphere_instance.transform);
         sphere_instance.instanceId = cast_u32(tlas_instances.size());
-        sphere_instance.blasId = cast_u32(m_objModel.size());
+        sphere_instance.blasId     = cast_u32(m_objModel.size());
         sphere_instance.hitGroupId = 1;
-        sphere_instance.flags = vk::GeometryInstanceFlagBitsKHR::eTriangleFacingCullDisable;
+        sphere_instance.flags      = vk::GeometryInstanceFlagBitsKHR::eTriangleFacingCullDisable;
         tlas_instances.emplace_back(sphere_instance);
     }
     m_rtBuilder.buildTlas(tlas_instances,
                           vk::BuildAccelerationStructureFlagBitsKHR::ePreferFastTrace);
-#endif
 }
 
 //--------------------------------------------------------------------------------------------------
@@ -938,11 +856,7 @@ void HelloVulkan::createRtDescriptorSet()
     m_rtDescSetLayout = rt_DS_layout_bindings_.MakeLayout(device_);
     m_rtDescSet       = device_.allocateDescriptorSets({m_rtDescPool, 1, &m_rtDescSetLayout})[0];
 
-#ifdef USE_VKPBR
-    vk::AccelerationStructureKHR tlas = m_rtBuilder.getAccelerationStructure();
-#else
-    vk::AccelerationStructureKHR tlas = m_rtBuilder.getAccelerationStructure();
-#endif
+    vk::AccelerationStructureKHR                   tlas = m_rtBuilder.getAccelerationStructure();
     vk::WriteDescriptorSetAccelerationStructureKHR descASInfo;
     descASInfo.setAccelerationStructureCount(1);
     descASInfo.setPAccelerationStructures(&tlas);
@@ -1104,8 +1018,6 @@ void HelloVulkan::createRtShaderBindingTable()
     device_.getRayTracingShaderGroupHandlesKHR(m_rtPipeline, 0, groupCount, sbtSize,
                                                shaderHandleStorage.data());
     // Write the handles in the SBT
-    // nvvk::CommandPool genCmdBuf(device_, graphics_queue_index_);
-    // vk::CommandBuffer cmdBuf = genCmdBuf.createCommandBuffer();
     vkpbr::CommandPool cmd_pool(device_, graphics_queue_index_);
     vk::CommandBuffer  cmd_buffer = cmd_pool.MakeCmdBuffer();
 
@@ -1114,9 +1026,7 @@ void HelloVulkan::createRtShaderBindingTable()
     m_debug.setObjectName(m_rtSBTBuffer.handle, "SBT");
 
     cmd_pool.SubmitAndWait(cmd_buffer);
-    // genCmdBuf.submitAndWait(cmdBuf);
     allocator_.ReleaseAllStagingBuffers();
-    m_alloc.finalizeAndReleaseStaging();
 }
 
 //--------------------------------------------------------------------------------------------------

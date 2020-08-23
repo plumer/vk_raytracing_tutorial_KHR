@@ -10,16 +10,20 @@
 
 namespace vkpbr {
 
-template<typename BitType>
+template <typename BitType>
 bool FlagsMatch(vk::Flags<BitType> candidate, vk::Flags<BitType> desired_flags)
 {
     return (candidate & desired_flags) == desired_flags;
 }
-template<typename BitType>
+template <typename BitType>
 bool FlagsMatch(vk::Flags<BitType> candidate, BitType desired_flags)
 {
     return FlagsMatch(candidate, vk::Flags<BitType>(desired_flags));
 }
+
+void CmdGenerateMipmaps(vk::CommandBuffer cmd_buffer, const vk::Image& image, vk::Format image_format,
+                        const vk::Extent2D& size, uint32_t mipLevels);
+
 
 class CommandPool
 {
@@ -42,7 +46,7 @@ class CommandPool
   private:
     const vk::Device& device_;
     const vk::Queue   default_queue_;
-    //u32               queue_index_ = 0;
+    // u32               queue_index_ = 0;
 
     vk::CommandPool cmd_pool_;
 };
@@ -120,8 +124,25 @@ class DescriptorSetBindings
     std::vector<vk::DescriptorSetLayoutBinding> bindings_;
 };
 
+class SamplerPool
+{
+  public:
+    SamplerPool(SamplerPool const&) = delete;
+    SamplerPool& operator=(SamplerPool const&) = delete;
 
-class RaytracingBuilder
+    SamplerPool() = default;
+    SamplerPool(vk::Device device);
+
+  private:
+    struct State {
+        vk::SamplerCreateInfo                create_info;
+        vk::SamplerReductionModeCreateInfo   reduction_ci;
+        vk::SamplerYcbcrConversionCreateInfo ycbr_ci;
+    };
+};
+
+
+class BuggyRaytracingBuilder
 {
   public:
     // Type Aliases.
@@ -132,10 +153,10 @@ class RaytracingBuilder
     using ASGeometry               = vk::AccelerationStructureGeometryKHR;
     using ASBuildOffsetInfo        = vk::AccelerationStructureBuildOffsetInfoKHR;
 
-    RaytracingBuilder(RaytracingBuilder const&) = delete;
-    RaytracingBuilder& operator=(const RaytracingBuilder&) = delete;
+    BuggyRaytracingBuilder(BuggyRaytracingBuilder const&) = delete;
+    BuggyRaytracingBuilder& operator=(const BuggyRaytracingBuilder&) = delete;
 
-    RaytracingBuilder() = default;
+    BuggyRaytracingBuilder() = default;
 
     struct Blas {
         UniqueMemoryAccelStruct accel_struct;
@@ -162,7 +183,7 @@ class RaytracingBuilder
     void BuildBlas(const std::vector<Blas>& blases,
                    BuildASFlags             flags = BuildASFlagBits::ePreferFastTrace);
 
-    vk::AccelerationStructureInstanceKHR InstanceToVkGeometryInstanceKHR(const Instance &instance);
+    vk::AccelerationStructureInstanceKHR InstanceToVkGeometryInstanceKHR(const Instance& instance);
 
     void BuildTlas(const std::vector<Instance>& instances,
                    BuildASFlags                 flags = BuildASFlagBits::ePreferFastTrace);
@@ -178,7 +199,7 @@ class RaytracingBuilder
 
   private:
     struct Tlas {
-        UniqueMemoryAccelStruct accel_struct;
+        UniqueMemoryAccelStruct                accel_struct;
         vk::AccelerationStructureCreateInfoKHR accel_struct_ci;
         vk::BuildAccelerationStructureFlagsKHR flags;
     };
@@ -189,7 +210,7 @@ class RaytracingBuilder
     UniqueMemoryBuffer instance_buffer_;
 
     vk::Device                   device_;
-    const UniqueMemoryAllocator* allocator_ = nullptr;
+    const UniqueMemoryAllocator* allocator_   = nullptr;
     u32                          queue_index_ = 0;
 };
 

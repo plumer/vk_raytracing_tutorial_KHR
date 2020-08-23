@@ -33,14 +33,10 @@
 #include "nvvk/debug_util_vk.hpp"
 #include "vk_appbase.h"
 #include "vk_memory.h"
+#include "vk_raytrace.hpp"
 #include "vk_utils.h"
-#include "vk_raytrace.hpp"
 // #VKRay
-#define USE_VKPBR
 #include "vk_raytrace.hpp"
-#ifndef USE_VKPBR
-#include "nvvk/raytraceKHR_vk.hpp"
-#endif
 
 //--------------------------------------------------------------------------------------------------
 // Simple rasterizer of OBJ objects
@@ -108,11 +104,13 @@ class HelloVulkan : public vkpbr::AppBase
     vk::DescriptorSetLayout      m_descSetLayout;
     vk::DescriptorSet            m_descSet;
 
-    vkpbr::UniqueMemoryBuffer  m_cameraMat;  // Device-Host of the camera matrices
-    vkpbr::UniqueMemoryBuffer  m_sceneDesc;  // Device buffer of the OBJ instances
-    std::vector<nvvk::Texture> m_textures;   // vector of all textures of the scene
+    vkpbr::UniqueMemoryBuffer m_cameraMat;  // Device-Host of the camera matrices
+    vkpbr::UniqueMemoryBuffer m_sceneDesc;  // Device buffer of the OBJ instances
+    // std::vector<nvvk::Texture> m_textures;   // vector of all textures of the scene
+    std::vector<vkpbr::UniqueMemoryTexture> m_textures;
 
-    nvvk::AllocatorDedicated     m_alloc;  // Allocator for buffer, images, acceleration structures
+    // nvvk::AllocatorDedicated     m_alloc;  // Allocator for buffer, images, acceleration
+    // structures
     vkpbr::UniqueMemoryAllocator allocator_;
     nvvk::DebugUtil              m_debug;  // Utility to name objects
 
@@ -131,33 +129,25 @@ class HelloVulkan : public vkpbr::AppBase
     vk::PipelineLayout           m_postPipelineLayout;
     vk::RenderPass               m_offscreenRenderPass;
     vk::Framebuffer              m_offscreenFramebuffer;
-    nvvk::Texture                m_offscreenColor;
+    vkpbr::UniqueMemoryTexture   m_offscreenColor;
     vk::Format                   m_offscreenColorFormat{vk::Format::eR32G32B32A32Sfloat};
-    nvvk::Texture                m_offscreenDepth;
+    vkpbr::UniqueMemoryTexture   m_offscreenDepth;
     vk::Format                   m_offscreenDepthFormat{vk::Format::eD32Sfloat};
 
     // #VKRay
-    void initRayTracing();
-#ifndef USE_VKPBR
-    nvvk::RaytracingBuilderKHR::Blas objectToVkGeometryKHR(const ObjModel& model);
-#else
+    void                              initRayTracing();
     vkpbr::RaytracingBuilderKHR::Blas objectToVkGeometryKHR(const ObjModel& model);
-#endif
-    void createBottomLevelAS();
-    void createTopLevelAS();
-    void createRtDescriptorSet();
-    void updateRtDescriptorSet();
-    void createRtPipeline();
-    void createRtShaderBindingTable();
+    void                              createBottomLevelAS();
+    void                              createTopLevelAS();
+    void                              createRtDescriptorSet();
+    void                              updateRtDescriptorSet();
+    void                              createRtPipeline();
+    void                              createRtShaderBindingTable();
     void raytrace(const vk::CommandBuffer& cmdBuf, const glm::vec4& clearColor);
 
 
-    vk::PhysicalDeviceRayTracingPropertiesKHR m_rtProperties;
-#ifndef USE_VKPBR
-    nvvk::RaytracingBuilderKHR m_rtBuilder;
-#else
-    vkpbr::RaytracingBuilderKHR       m_rtBuilder;
-#endif
+    vk::PhysicalDeviceRayTracingPropertiesKHR           m_rtProperties;
+    vkpbr::RaytracingBuilderKHR                         m_rtBuilder;
     vkpbr::DescriptorSetBindings                        rt_DS_layout_bindings_;
     vk::DescriptorPool                                  m_rtDescPool;
     vk::DescriptorSetLayout                             m_rtDescSetLayout;
@@ -184,15 +174,11 @@ class HelloVulkan : public vkpbr::AppBase
         glm::vec3 minimum;
         glm::vec3 maximum;
     };
-#ifndef USE_VKPBR
-    nvvk::RaytracingBuilderKHR::Blas sphereToVkGeometryKHR();
-#else
     vkpbr::RaytracingBuilderKHR::Blas sphereToVkGeometryKHR();
-#endif
-    std::vector<Sphere>       m_spheres;                // All spheres
-    vkpbr::UniqueMemoryBuffer m_spheresBuffer;          // Buffer holding the spheres
-    vkpbr::UniqueMemoryBuffer m_spheresAabbBuffer;      // Buffer of all Aabb
-    vkpbr::UniqueMemoryBuffer m_spheresMatColorBuffer;  // Multiple materials
+    std::vector<Sphere>               m_spheres;                // All spheres
+    vkpbr::UniqueMemoryBuffer         m_spheresBuffer;          // Buffer holding the spheres
+    vkpbr::UniqueMemoryBuffer         m_spheresAabbBuffer;      // Buffer of all Aabb
+    vkpbr::UniqueMemoryBuffer         m_spheresMatColorBuffer;  // Multiple materials
     vkpbr::UniqueMemoryBuffer m_spheresMatIndexBuffer;  // Define which sphere uses which material
     void                      createSpheres();
 };
