@@ -29,7 +29,6 @@
 #include "types.h"
 
 #define NVVK_ALLOC_DEDICATED
-#include "nvvk/allocator_vk.hpp"
 #include "nvvk/debug_util_vk.hpp"
 #include "vk_appbase.h"
 #include "vk_memory.h"

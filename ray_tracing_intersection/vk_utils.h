@@ -21,9 +21,33 @@ bool FlagsMatch(vk::Flags<BitType> candidate, BitType desired_flags)
     return FlagsMatch(candidate, vk::Flags<BitType>(desired_flags));
 }
 
-void CmdGenerateMipmaps(vk::CommandBuffer cmd_buffer, const vk::Image& image, vk::Format image_format,
-                        const vk::Extent2D& size, uint32_t mipLevels);
+inline u32 MipLevels(vk::Extent2D extent) {
+    u32 side_width = std::max(extent.width, extent.height);
+    return cast_u32(std::floor(std::log2(side_width))) + 1;
+}
 
+void CmdGenerateMipmaps(vk::CommandBuffer cmd_buffer, const vk::Image& image,
+                        vk::Format image_format, const vk::Extent2D& size, uint32_t mipLevels);
+
+void CmdBarrierImageLayout(vk::CommandBuffer cmd_buffer, vk::Image image,
+                           vk::ImageLayout old_layout, vk::ImageLayout new_layout,
+                           const vk::ImageSubresourceRange& sub_range);
+
+void CmdBarrierImageLayout(vk::CommandBuffer cmd_buffer, vk::Image image,
+                           vk::ImageLayout old_layout, vk::ImageLayout new_layout,
+                           vk::ImageAspectFlags aspect_mask);
+
+vk::ImageCreateInfo MakeImage2DCreateInfo(
+    const vk::Extent2D& size, vk::Format format = vk::Format::eR8G8B8A8Unorm,
+    vk::ImageUsageFlags usage = vk::ImageUsageFlagBits::eSampled);
+
+vk::ImageViewCreateInfo MakeImage2DViewCreateInfo(
+    const vk::Image& image, vk::Format format = vk::Format::eR8G8B8A8Unorm,
+    vk::ImageAspectFlags aspect_flags = vk::ImageAspectFlagBits::eColor, u32 levels = 1,
+    const void* p_next_image_view = nullptr);
+
+vk::ImageViewCreateInfo MakeImageViewCreateInfo(const vk::Image&           image,
+                                                const vk::ImageCreateInfo& image_ci);
 
 class CommandPool
 {

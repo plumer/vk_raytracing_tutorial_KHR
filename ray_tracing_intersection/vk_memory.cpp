@@ -1,79 +1,12 @@
 #include "vk_memory.h"
 
 #include "logging.h"
+#include "vk_utils.h"
 
 namespace {
 
-vk::AccessFlags AccessFlagsForImageLayout(vk::ImageLayout layout)
-{
-    switch (layout) {
-        case vk::ImageLayout::ePreinitialized:
-            return vk::AccessFlagBits::eHostWrite;
-        case vk::ImageLayout::eTransferDstOptimal:
-            return vk::AccessFlagBits::eTransferWrite;
-        case vk::ImageLayout::eTransferSrcOptimal:
-            return vk::AccessFlagBits::eTransferRead;
-        case vk::ImageLayout::eColorAttachmentOptimal:
-            return vk::AccessFlagBits::eColorAttachmentWrite;
-        case vk::ImageLayout::eDepthStencilAttachmentOptimal:
-            return vk::AccessFlagBits::eDepthStencilAttachmentWrite;
-        case vk::ImageLayout::eShaderReadOnlyOptimal:
-            return vk::AccessFlagBits::eShaderRead;
-        default:
-            return vk::AccessFlags();
-    }
-}
 
-vk::PipelineStageFlags PipelineStageForLayout(vk::ImageLayout layout)
-{
-    switch (layout) {
-        case vk::ImageLayout::eTransferDstOptimal:
-        case vk::ImageLayout::eTransferSrcOptimal:
-            return vk::PipelineStageFlagBits::eTransfer;
-        case vk::ImageLayout::eColorAttachmentOptimal:
-            return vk::PipelineStageFlagBits::eColorAttachmentOutput;
-        case vk::ImageLayout::eDepthStencilAttachmentOptimal:
-            return vk::PipelineStageFlagBits::eEarlyFragmentTests;
-        case vk::ImageLayout::eShaderReadOnlyOptimal:
-            return vk::PipelineStageFlagBits::eFragmentShader;
-        case vk::ImageLayout::ePreinitialized:
-            return vk::PipelineStageFlagBits::eHost;
-        case vk::ImageLayout::eUndefined:
-            return vk::PipelineStageFlagBits::eTopOfPipe;
-        default:
-            return vk::PipelineStageFlagBits::eBottomOfPipe;
-    }
-}
 
-void CmdBarrierImageLayout(vk::CommandBuffer cmd_buffer, vk::Image image,
-                           vk::ImageLayout old_layout, vk::ImageLayout new_layout,
-                           const vk::ImageSubresourceRange& sub_range)
-{
-    auto image_memory_barrier = vk::ImageMemoryBarrier()
-                                    .setOldLayout(old_layout)
-                                    .setNewLayout(new_layout)
-                                    .setImage(image)
-                                    .setSubresourceRange(sub_range)
-                                    .setSrcAccessMask(AccessFlagsForImageLayout(old_layout))
-                                    .setDstAccessMask(AccessFlagsForImageLayout(new_layout));
-    vk::PipelineStageFlags src_stage = PipelineStageForLayout(old_layout);
-    vk::PipelineStageFlags dst_stage = PipelineStageForLayout(new_layout);
-
-    cmd_buffer.pipelineBarrier(src_stage, dst_stage, {}, nullptr, nullptr, image_memory_barrier);
-}
-
-void CmdBarrierImageLayout(vk::CommandBuffer cmd_buffer, vk::Image image,
-                           vk::ImageLayout old_layout, vk::ImageLayout new_layout,
-                           vk::ImageAspectFlags aspect_mask)
-{
-    auto subresource_range = vk::ImageSubresourceRange()
-                                 .setAspectMask(aspect_mask)
-                                 .setLevelCount(1)
-                                 .setLayerCount(1)
-                                 .setBaseMipLevel(0)
-                                 .setBaseArrayLayer(0);
-    CmdBarrierImageLayout(cmd_buffer, image, old_layout, new_layout, subresource_range);
-}
 }  // namespace
 
 namespace vkpbr {

@@ -36,6 +36,9 @@ extern std::vector<std::string> defaultSearchPaths;
 #include "fileformats/stb_image.h"
 #include "hello_vulkan.h"
 #include "nvh/fileoperations.hpp"
+#define NVVK_ALLOC_DEDICATED
+//#include "nvvk/allocator_vk.hpp"
+
 //#include "nvvk/commands_vk.hpp"
 #include "nvvk/descriptorsets_vk.hpp"
 #include "nvvk/pipeline_vk.hpp"
@@ -46,6 +49,7 @@ extern std::vector<std::string> defaultSearchPaths;
 #include <glm/gtx/transform.hpp>
 
 #include "logging.h"
+#include "vk_utils.h"
 
 // Holding the camera matrices
 struct CameraMatrices {
@@ -328,20 +332,21 @@ void HelloVulkan::BuildTextureImages(const vk::CommandBuffer&        cmdBuf,
         std::array<uint8_t, 4> color{255u, 255u, 255u, 255u};
         vk::DeviceSize         bufferSize      = sizeof(color);
         auto                   imgSize         = vk::Extent2D(1, 1);
-        auto                   imageCreateInfo = nvvk::makeImage2DCreateInfo(imgSize, format);
+        auto                   imageCreateInfo = vkpbr::MakeImage2DCreateInfo(imgSize, format);
 
         // Creating the dummy texure
         vkpbr::UniqueMemoryImage image =
             allocator_.MakeImage(cmdBuf, bufferSize, color.data(), imageCreateInfo);
 
         vk::ImageViewCreateInfo ivInfo =
-            nvvk::makeImageViewCreateInfo(image.handle, imageCreateInfo);
+            vkpbr::MakeImageViewCreateInfo(image.handle, imageCreateInfo);
         texture = allocator_.MakeTexture(image, ivInfo, samplerCreateInfo);
         CHECK(texture.descriptor.sampler);
 
         // The image format must be in VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
-        nvvk::cmdBarrierImageLayout(cmdBuf, texture.handle, vk::ImageLayout::eUndefined,
-                                    vk::ImageLayout::eShaderReadOnlyOptimal);
+        vkpbr::CmdBarrierImageLayout(cmdBuf, texture.handle, vk::ImageLayout::eUndefined,
+                                     vk::ImageLayout::eShaderReadOnlyOptimal,
+                                     vk::ImageAspectFlagBits::eColor);
         m_textures.push_back(texture);
     } else {
         // Uploading all images
@@ -364,9 +369,9 @@ void HelloVulkan::BuildTextureImages(const vk::CommandBuffer&        cmdBuf,
 
             vk::DeviceSize bufferSize =
                 static_cast<uint64_t>(texWidth) * texHeight * sizeof(uint8_t) * 4;
-            auto imgSize = vk::Extent2D(texWidth, texHeight);
-            auto imageCreateInfo =
-                nvvk::makeImage2DCreateInfo(imgSize, format, vkIU::eSampled, true);
+            auto imgSize         = vk::Extent2D(texWidth, texHeight);
+            auto imageCreateInfo = vkpbr::MakeImage2DCreateInfo(imgSize, format, vkIU::eSampled)
+                                       .setMipLevels(vkpbr::MipLevels(imgSize));
 
             {
                 vkpbr::UniqueMemoryImage image =
@@ -492,22 +497,22 @@ void HelloVulkan::createOffscreenRender()
 {
     // Creating the color image
     {
-        auto colorCreateInfo = nvvk::makeImage2DCreateInfo(window_size_, m_offscreenColorFormat,
-                                                           vk::ImageUsageFlagBits::eColorAttachment
-                                                               | vk::ImageUsageFlagBits::eSampled
-                                                               | vk::ImageUsageFlagBits::eStorage);
+        auto colorCreateInfo = vkpbr::MakeImage2DCreateInfo(window_size_, m_offscreenColorFormat,
+                                                            vk::ImageUsageFlagBits::eColorAttachment
+                                                                | vk::ImageUsageFlagBits::eSampled
+                                                                | vk::ImageUsageFlagBits::eStorage);
 
         vkpbr::UniqueMemoryImage image = allocator_.MakeImage(colorCreateInfo);
         vk::ImageViewCreateInfo  ivInfo =
-            nvvk::makeImageViewCreateInfo(image.handle, colorCreateInfo);
+            vkpbr::MakeImageViewCreateInfo(image.handle, colorCreateInfo);
         m_offscreenColor = allocator_.MakeTexture(image, ivInfo, vk::SamplerCreateInfo());
         m_offscreenColor.descriptor.imageLayout = vk::ImageLayout::eGeneral;
     }
 
     // Creating the depth buffer
     auto depthCreateInfo =
-        nvvk::makeImage2DCreateInfo(window_size_, m_offscreenDepthFormat,
-                                    vk::ImageUsageFlagBits::eDepthStencilAttachment);
+        vkpbr::MakeImage2DCreateInfo(window_size_, m_offscreenDepthFormat,
+                                     vk::ImageUsageFlagBits::eDepthStencilAttachment);
     {
         vkpbr::UniqueMemoryImage image = allocator_.MakeImage(depthCreateInfo);
 
@@ -524,11 +529,11 @@ void HelloVulkan::createOffscreenRender()
     {
         vkpbr::CommandPool genCmdBuf(device_, graphics_queue_index_);
         auto               cmdBuf = genCmdBuf.MakeCmdBuffer();
-        nvvk::cmdBarrierImageLayout(cmdBuf, m_offscreenColor.handle, vk::ImageLayout::eUndefined,
-                                    vk::ImageLayout::eGeneral);
-        nvvk::cmdBarrierImageLayout(cmdBuf, m_offscreenDepth.handle, vk::ImageLayout::eUndefined,
-                                    vk::ImageLayout::eDepthStencilAttachmentOptimal,
-                                    vk::ImageAspectFlagBits::eDepth);
+        vkpbr::CmdBarrierImageLayout(cmdBuf, m_offscreenColor.handle, vk::ImageLayout::eUndefined,
+                                     vk::ImageLayout::eGeneral, vk::ImageAspectFlagBits::eColor);
+        vkpbr::CmdBarrierImageLayout(cmdBuf, m_offscreenDepth.handle, vk::ImageLayout::eUndefined,
+                                     vk::ImageLayout::eDepthStencilAttachmentOptimal,
+                                     vk::ImageAspectFlagBits::eDepth);
 
         genCmdBuf.SubmitAndWait(cmdBuf);
     }

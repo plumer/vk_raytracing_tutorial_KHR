@@ -10,6 +10,47 @@ using Type      = vk::DescriptorType;
 using Stage     = vk::ShaderStageFlags;
 using StageBits = vk::ShaderStageFlagBits;
 using Writer    = vk::WriteDescriptorSet;
+
+vk::AccessFlags AccessFlagsForImageLayout(vk::ImageLayout layout)
+{
+    switch (layout) {
+        case vk::ImageLayout::ePreinitialized:
+            return vk::AccessFlagBits::eHostWrite;
+        case vk::ImageLayout::eTransferDstOptimal:
+            return vk::AccessFlagBits::eTransferWrite;
+        case vk::ImageLayout::eTransferSrcOptimal:
+            return vk::AccessFlagBits::eTransferRead;
+        case vk::ImageLayout::eColorAttachmentOptimal:
+            return vk::AccessFlagBits::eColorAttachmentWrite;
+        case vk::ImageLayout::eDepthStencilAttachmentOptimal:
+            return vk::AccessFlagBits::eDepthStencilAttachmentWrite;
+        case vk::ImageLayout::eShaderReadOnlyOptimal:
+            return vk::AccessFlagBits::eShaderRead;
+        default:
+            return vk::AccessFlags();
+    }
+}
+
+vk::PipelineStageFlags PipelineStageForLayout(vk::ImageLayout layout)
+{
+    switch (layout) {
+        case vk::ImageLayout::eTransferDstOptimal:
+        case vk::ImageLayout::eTransferSrcOptimal:
+            return vk::PipelineStageFlagBits::eTransfer;
+        case vk::ImageLayout::eColorAttachmentOptimal:
+            return vk::PipelineStageFlagBits::eColorAttachmentOutput;
+        case vk::ImageLayout::eDepthStencilAttachmentOptimal:
+            return vk::PipelineStageFlagBits::eEarlyFragmentTests;
+        case vk::ImageLayout::eShaderReadOnlyOptimal:
+            return vk::PipelineStageFlagBits::eFragmentShader;
+        case vk::ImageLayout::ePreinitialized:
+            return vk::PipelineStageFlagBits::eHost;
+        case vk::ImageLayout::eUndefined:
+            return vk::PipelineStageFlagBits::eTopOfPipe;
+        default:
+            return vk::PipelineStageFlagBits::eBottomOfPipe;
+    }
+}
 }  // namespace
 
 namespace vkpbr {
@@ -819,6 +860,88 @@ void CmdGenerateMipmaps(vk::CommandBuffer cmd_buffer, const vk::Image& image,
                                barrier);
 
     return;
+}
+
+void CmdBarrierImageLayout(vk::CommandBuffer cmd_buffer, vk::Image image,
+                           vk::ImageLayout old_layout, vk::ImageLayout new_layout,
+                           const vk::ImageSubresourceRange& sub_range)
+{
+    auto image_memory_barrier = vk::ImageMemoryBarrier()
+                                    .setOldLayout(old_layout)
+                                    .setNewLayout(new_layout)
+                                    .setImage(image)
+                                    .setSubresourceRange(sub_range)
+                                    .setSrcAccessMask(AccessFlagsForImageLayout(old_layout))
+                                    .setDstAccessMask(AccessFlagsForImageLayout(new_layout));
+    vk::PipelineStageFlags src_stage = PipelineStageForLayout(old_layout);
+    vk::PipelineStageFlags dst_stage = PipelineStageForLayout(new_layout);
+
+    cmd_buffer.pipelineBarrier(src_stage, dst_stage, {}, nullptr, nullptr, image_memory_barrier);
+}
+
+void CmdBarrierImageLayout(vk::CommandBuffer cmd_buffer, vk::Image image,
+                           vk::ImageLayout old_layout, vk::ImageLayout new_layout,
+                           vk::ImageAspectFlags aspect_mask)
+{
+    auto subresource_range = vk::ImageSubresourceRange()
+                                 .setAspectMask(aspect_mask)
+                                 .setLevelCount(1)
+                                 .setLayerCount(1)
+                                 .setBaseMipLevel(0)
+                                 .setBaseArrayLayer(0);
+    CmdBarrierImageLayout(cmd_buffer, image, old_layout, new_layout, subresource_range);
+}
+
+vk::ImageCreateInfo MakeImage2DCreateInfo(const vk::Extent2D& size, vk::Format format,
+                                          vk::ImageUsageFlags usage)
+{
+    return vk::ImageCreateInfo()
+        .setImageType(vk::ImageType::e2D)
+        .setFormat(format)
+        .setSamples(vk::SampleCountFlagBits::e1)
+        .setMipLevels(1)
+        .setArrayLayers(1)
+        .setExtent(vk::Extent3D(size, 1))
+        .setUsage(usage | vk::ImageUsageFlagBits::eTransferSrc
+                  | vk::ImageUsageFlagBits::eTransferDst);
+}
+
+vk::ImageViewCreateInfo MakeImage2DViewCreateInfo(const vk::Image& image, vk::Format format,
+                                                  vk::ImageAspectFlags aspect_flags, u32 levels,
+                                                  const void* p_next_image_view)
+{
+    return vk::ImageViewCreateInfo()
+        .setPNext(p_next_image_view)
+        .setImage(image)
+        .setViewType(vk::ImageViewType::e2D)
+        .setFormat(format)
+        .setSubresourceRange(vk::ImageSubresourceRange(aspect_flags, 0, levels, 0, 1));
+}
+
+vk::ImageViewCreateInfo MakeImageViewCreateInfo(const vk::Image&           image,
+                                                const vk::ImageCreateInfo& image_ci)
+{
+    vk::ImageViewType view_type = {};
+    switch (image_ci.imageType) {
+        case vk::ImageType::e1D:
+        case vk::ImageType::e2D:
+        case vk::ImageType::e3D:
+            // The underlying values are exactly the same under these 3 cases.
+            view_type = static_cast<vk::ImageViewType>(VkFlags(image_ci.imageType));
+            break;
+        default:
+            LOG(FATAL);
+    }
+
+    auto subresource_range =
+        vk::ImageSubresourceRange(vk::ImageAspectFlagBits::eColor, 0, VK_REMAINING_MIP_LEVELS, 0,
+                                  VK_REMAINING_ARRAY_LAYERS);
+
+    return vk::ImageViewCreateInfo()
+        .setImage(image)
+        .setFormat(image_ci.format)
+        .setViewType(view_type)
+        .setSubresourceRange(subresource_range);
 }
 
 }  // namespace vkpbr
