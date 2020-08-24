@@ -21,7 +21,8 @@ bool FlagsMatch(vk::Flags<BitType> candidate, BitType desired_flags)
     return FlagsMatch(candidate, vk::Flags<BitType>(desired_flags));
 }
 
-inline u32 MipLevels(vk::Extent2D extent) {
+inline u32 MipLevels(vk::Extent2D extent)
+{
     u32 side_width = std::max(extent.width, extent.height);
     return cast_u32(std::floor(std::log2(side_width))) + 1;
 }
@@ -37,6 +38,14 @@ void CmdBarrierImageLayout(vk::CommandBuffer cmd_buffer, vk::Image image,
                            vk::ImageLayout old_layout, vk::ImageLayout new_layout,
                            vk::ImageAspectFlags aspect_mask);
 
+inline vk::ShaderModule MakeShaderModule(const vk::Device& device, const std::string& binary_code)
+{
+    auto shader_module_ci = vk::ShaderModuleCreateInfo()
+                                .setCodeSize(binary_code.size())
+                                .setPCode(reinterpret_cast<const u32*>(binary_code.data()));
+    return device.createShaderModule(shader_module_ci);
+}
+
 vk::ImageCreateInfo MakeImage2DCreateInfo(
     const vk::Extent2D& size, vk::Format format = vk::Format::eR8G8B8A8Unorm,
     vk::ImageUsageFlags usage = vk::ImageUsageFlagBits::eSampled);
@@ -48,6 +57,13 @@ vk::ImageViewCreateInfo MakeImage2DViewCreateInfo(
 
 vk::ImageViewCreateInfo MakeImageViewCreateInfo(const vk::Image&           image,
                                                 const vk::ImageCreateInfo& image_ci);
+
+vk::RenderPass MakeRenderPass(vk::Device&                    device,
+                              const std::vector<vk::Format>& color_attachment_formats,
+                              vk::Format depth_attachment_format, u32 subpass_count = 1,
+                              bool clear_color = true, bool clear_depth = true,
+                              vk::ImageLayout initial_layout = vk::ImageLayout::eUndefined,
+                              vk::ImageLayout final_layout   = vk::ImageLayout::ePresentSrcKHR);
 
 class CommandPool
 {

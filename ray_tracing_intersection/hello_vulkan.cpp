@@ -35,19 +35,12 @@ extern std::vector<std::string> defaultSearchPaths;
 
 #include "fileformats/stb_image.h"
 #include "hello_vulkan.h"
-#include "nvh/fileoperations.hpp"
-#define NVVK_ALLOC_DEDICATED
-//#include "nvvk/allocator_vk.hpp"
-
-//#include "nvvk/commands_vk.hpp"
-#include "nvvk/descriptorsets_vk.hpp"
 #include "nvvk/pipeline_vk.hpp"
-#include "nvvk/renderpasses_vk.hpp"
-#include "nvvk/shaders_vk.hpp"
 #include "obj_loader.h"
 #define GLM_FORCE_RADIANS
 #include <glm/gtx/transform.hpp>
 
+#include "io.h"
 #include "logging.h"
 #include "vk_utils.h"
 
@@ -140,7 +133,9 @@ void HelloVulkan::BuildDescriptorSetLayout()
 
     m_descSetLayout = DS_layout_bindings_.MakeLayout(device_);
     m_descPool      = DS_layout_bindings_.MakePool(device_, 1);
-    m_descSet       = nvvk::allocateDescriptorSet(device_, m_descPool, m_descSetLayout);
+    auto desc_sets  = device_.allocateDescriptorSets({m_descPool, 1, &m_descSetLayout});
+    CHECK_EQ(desc_sets.size(), 1);
+    m_descSet = desc_sets.front();
 }
 
 //--------------------------------------------------------------------------------------------------
@@ -212,8 +207,8 @@ void HelloVulkan::BuildGraphicsPipeline()
     std::vector<std::string>                paths = defaultSearchPaths;
     nvvk::GraphicsPipelineGeneratorCombined gpb(device_, m_pipelineLayout, m_offscreenRenderPass);
     gpb.depthStencilState.depthTestEnable = true;
-    gpb.addShader(nvh::loadFile("shaders/vert_shader.vert.spv", true, paths), vkSS::eVertex);
-    gpb.addShader(nvh::loadFile("shaders/frag_shader.frag.spv", true, paths), vkSS::eFragment);
+    gpb.addShader(io::LoadBinaryFile("shaders/vert_shader.vert.spv", paths), vkSS::eVertex);
+    gpb.addShader(io::LoadBinaryFile("shaders/frag_shader.frag.spv", paths), vkSS::eFragment);
     gpb.addBindingDescription({0, sizeof(VertexObj)});
     gpb.addAttributeDescriptions(
         {{0, 0, vk::Format::eR32G32B32Sfloat, offsetof(VertexObj, pos)},
@@ -354,7 +349,7 @@ void HelloVulkan::BuildTextureImages(const vk::CommandBuffer&        cmdBuf,
             std::stringstream o;
             int               texWidth, texHeight, texChannels;
             o << "media/textures/" << texture;
-            std::string txtFile = nvh::findFile(o.str(), defaultSearchPaths);
+            std::string txtFile = io::FindFile(o.str(), defaultSearchPaths);
 
             stbi_uc* pixels =
                 stbi_load(txtFile.c_str(), &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
@@ -541,9 +536,9 @@ void HelloVulkan::createOffscreenRender()
     // Creating a renderpass for the offscreen
     if (!m_offscreenRenderPass) {
         m_offscreenRenderPass =
-            nvvk::createRenderPass(device_, {m_offscreenColorFormat}, m_offscreenDepthFormat, 1,
-                                   true, true, vk::ImageLayout::eGeneral,
-                                   vk::ImageLayout::eGeneral);
+            vkpbr::MakeRenderPass(device_, {m_offscreenColorFormat}, m_offscreenDepthFormat, 1,
+                                  /*clear_color=*/true, /*clear_depth=*/true,
+                                  vk::ImageLayout::eGeneral, vk::ImageLayout::eGeneral);
     }
 
     // Creating the frame buffer for offscreen
@@ -583,9 +578,9 @@ void HelloVulkan::createPostPipeline()
 
     nvvk::GraphicsPipelineGeneratorCombined pipelineGenerator(device_, m_postPipelineLayout,
                                                               render_pass_);
-    pipelineGenerator.addShader(nvh::loadFile("shaders/passthrough.vert.spv", true, paths),
+    pipelineGenerator.addShader(io::LoadBinaryFile("shaders/passthrough.vert.spv", paths),
                                 vk::ShaderStageFlagBits::eVertex);
-    pipelineGenerator.addShader(nvh::loadFile("shaders/post.frag.spv", true, paths),
+    pipelineGenerator.addShader(io::LoadBinaryFile("shaders/post.frag.spv", paths),
                                 vk::ShaderStageFlagBits::eFragment);
     pipelineGenerator.rasterizationState.setCullMode(vk::CullModeFlagBits::eNone);
     m_postPipeline = pipelineGenerator.createPipeline();
@@ -605,7 +600,9 @@ void HelloVulkan::createPostDescriptor()
     post_DS_layout_bindings_.AddBinding(vkDS(0, vkDT::eCombinedImageSampler, 1, vkSS::eFragment));
     m_postDescSetLayout = post_DS_layout_bindings_.MakeLayout(device_);
     m_postDescPool      = post_DS_layout_bindings_.MakePool(device_);
-    m_postDescSet       = nvvk::allocateDescriptorSet(device_, m_postDescPool, m_postDescSetLayout);
+    auto desc_sets      = device_.allocateDescriptorSets({m_postDescPool, 1, &m_postDescSetLayout});
+    CHECK_EQ(desc_sets.size(), 1);
+    m_postDescSet = desc_sets.front();
 }
 
 //--------------------------------------------------------------------------------------------------
@@ -899,67 +896,59 @@ void HelloVulkan::createRtPipeline()
     std::vector<std::string> paths = defaultSearchPaths;
 
     vk::ShaderModule raygenSM =
-        nvvk::createShaderModule(device_,  //
-                                 nvh::loadFile("shaders/raytrace.rgen.spv", true, paths));
+        vkpbr::MakeShaderModule(device_, io::LoadBinaryFile("shaders/raytrace.rgen.spv", paths));
     vk::ShaderModule missSM =
-        nvvk::createShaderModule(device_,  //
-                                 nvh::loadFile("shaders/raytrace.rmiss.spv", true, paths));
+        vkpbr::MakeShaderModule(device_, io::LoadBinaryFile("shaders/raytrace.rmiss.spv", paths));
 
     // The second miss shader is invoked when a shadow ray misses the geometry. It
     // simply indicates that no occlusion has been found
     vk::ShaderModule shadowmissSM =
-        nvvk::createShaderModule(device_,
-                                 nvh::loadFile("shaders/raytraceShadow.rmiss.spv", true, paths));
-
+        vkpbr::MakeShaderModule(device_,
+                                io::LoadBinaryFile("shaders/raytraceShadow.rmiss.spv", paths));
 
     std::vector<vk::PipelineShaderStageCreateInfo> stages;
 
+    auto MakeEmptyShaderGroupCI = []() {
+        return vk::RayTracingShaderGroupCreateInfoKHR(vk::RayTracingShaderGroupTypeKHR::eGeneral,
+                                                      VK_SHADER_UNUSED_KHR, VK_SHADER_UNUSED_KHR,
+                                                      VK_SHADER_UNUSED_KHR, VK_SHADER_UNUSED_KHR);
+    };
     // Raygen
-    vk::RayTracingShaderGroupCreateInfoKHR rg{vk::RayTracingShaderGroupTypeKHR::eGeneral,
-                                              VK_SHADER_UNUSED_KHR, VK_SHADER_UNUSED_KHR,
-                                              VK_SHADER_UNUSED_KHR, VK_SHADER_UNUSED_KHR};
     stages.push_back({{}, vk::ShaderStageFlagBits::eRaygenKHR, raygenSM, "main"});
-    rg.setGeneralShader(static_cast<uint32_t>(stages.size() - 1));
-    m_rtShaderGroups.push_back(rg);
+    auto raygen_group = MakeEmptyShaderGroupCI().setGeneralShader(cast_u32(stages.size() - 1));
+    m_rtShaderGroups.push_back(raygen_group);
     // Miss
-    vk::RayTracingShaderGroupCreateInfoKHR mg{vk::RayTracingShaderGroupTypeKHR::eGeneral,
-                                              VK_SHADER_UNUSED_KHR, VK_SHADER_UNUSED_KHR,
-                                              VK_SHADER_UNUSED_KHR, VK_SHADER_UNUSED_KHR};
     stages.push_back({{}, vk::ShaderStageFlagBits::eMissKHR, missSM, "main"});
-    mg.setGeneralShader(static_cast<uint32_t>(stages.size() - 1));
-    m_rtShaderGroups.push_back(mg);
+    auto miss_group = MakeEmptyShaderGroupCI().setGeneralShader(cast_u32(stages.size() - 1));
+    m_rtShaderGroups.push_back(miss_group);
     // Shadow Miss
     stages.push_back({{}, vk::ShaderStageFlagBits::eMissKHR, shadowmissSM, "main"});
-    mg.setGeneralShader(static_cast<uint32_t>(stages.size() - 1));
-    m_rtShaderGroups.push_back(mg);
+    miss_group.setGeneralShader(cast_u32(stages.size() - 1));
+    m_rtShaderGroups.push_back(miss_group);
 
     // Hit Group0 - Closest Hit
     vk::ShaderModule chitSM =
-        nvvk::createShaderModule(device_,  //
-                                 nvh::loadFile("shaders/raytrace.rchit.spv", true, paths));
+        vkpbr::MakeShaderModule(device_, io::LoadBinaryFile("shaders/raytrace.rchit.spv", paths));
 
     {
-        vk::RayTracingShaderGroupCreateInfoKHR hg{
-            vk::RayTracingShaderGroupTypeKHR::eTrianglesHitGroup, VK_SHADER_UNUSED_KHR,
-            VK_SHADER_UNUSED_KHR, VK_SHADER_UNUSED_KHR, VK_SHADER_UNUSED_KHR};
         stages.push_back({{}, vk::ShaderStageFlagBits::eClosestHitKHR, chitSM, "main"});
-        hg.setClosestHitShader(static_cast<uint32_t>(stages.size() - 1));
-        m_rtShaderGroups.push_back(hg);
+        auto hit_group = MakeEmptyShaderGroupCI()
+                             .setType(vk::RayTracingShaderGroupTypeKHR::eTrianglesHitGroup)
+                             .setClosestHitShader(static_cast<uint32_t>(stages.size() - 1));
+        m_rtShaderGroups.push_back(hit_group);
     }
 
     // Hit Group1 - Closest Hit + Intersection (procedural)
     vk::ShaderModule chit2SM =
-        nvvk::createShaderModule(device_,  //
-                                 nvh::loadFile("shaders/raytrace2.rchit.spv", true, paths));
+        vkpbr::MakeShaderModule(device_, io::LoadBinaryFile("shaders/raytrace2.rchit.spv", paths));
+
     vk::ShaderModule rintSM =
-        nvvk::createShaderModule(device_,  //
-                                 nvh::loadFile("shaders/raytrace.rint.spv", true, paths));
+        vkpbr::MakeShaderModule(device_, io::LoadBinaryFile("shaders/raytrace.rint.spv", paths));
     {
-        vk::RayTracingShaderGroupCreateInfoKHR hg{
-            vk::RayTracingShaderGroupTypeKHR::eProceduralHitGroup, VK_SHADER_UNUSED_KHR,
-            VK_SHADER_UNUSED_KHR, VK_SHADER_UNUSED_KHR, VK_SHADER_UNUSED_KHR};
         stages.push_back({{}, vk::ShaderStageFlagBits::eClosestHitKHR, chit2SM, "main"});
-        hg.setClosestHitShader(static_cast<uint32_t>(stages.size() - 1));
+        auto hg = MakeEmptyShaderGroupCI()
+                      .setType(vk::RayTracingShaderGroupTypeKHR::eProceduralHitGroup)
+                      .setClosestHitShader(static_cast<uint32_t>(stages.size() - 1));
         stages.push_back({{}, vk::ShaderStageFlagBits::eIntersectionKHR, rintSM, "main"});
         hg.setIntersectionShader(static_cast<uint32_t>(stages.size() - 1));
         m_rtShaderGroups.push_back(hg);
@@ -995,12 +984,9 @@ void HelloVulkan::createRtPipeline()
     rayPipelineInfo.setLayout(m_rtPipelineLayout);
     m_rtPipeline = device_.createRayTracingPipelineKHR({}, rayPipelineInfo).value;
 
-    device_.destroy(raygenSM);
-    device_.destroy(missSM);
-    device_.destroy(shadowmissSM);
-    device_.destroy(chitSM);
-    device_.destroy(chit2SM);
-    device_.destroy(rintSM);
+    for (auto& shader_module : {raygenSM, missSM, shadowmissSM, chitSM, chit2SM, rintSM}) {
+        device_.destroy(shader_module);
+    }
 }
 
 //--------------------------------------------------------------------------------------------------

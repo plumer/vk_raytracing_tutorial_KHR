@@ -430,7 +430,6 @@ void BuggyRaytracingBuilder::BuildBlas(const std::vector<Blas>& blases, BuildASF
     auto query_pool = device_.createQueryPool(query_pool_ci);
 
     // Creates a command buffer containing all the BLAS builds.
-    // vkpbr::CommandPool             cmd_pool(device_, queue_index_);
     std::vector<VkCommandBuffer> all_cmd_buffers;
     all_cmd_buffers.reserve(blases_.size());
 
@@ -942,6 +941,82 @@ vk::ImageViewCreateInfo MakeImageViewCreateInfo(const vk::Image&           image
         .setFormat(image_ci.format)
         .setViewType(view_type)
         .setSubresourceRange(subresource_range);
+}
+
+vk::RenderPass MakeRenderPass(vk::Device&                    device,
+                              const std::vector<vk::Format>& color_attachment_formats,
+                              vk::Format depth_attachment_format, u32 subpass_count,
+                              bool clear_color, bool clear_depth, vk::ImageLayout initial_layout,
+                              vk::ImageLayout final_layout)
+{
+    std::vector<vk::AttachmentDescription> all_attachments;
+    std::vector<vk::AttachmentReference>   color_attachment_refs;
+    bool has_depth = (depth_attachment_format != vk::Format::eUndefined);
+
+    for (auto format : color_attachment_formats) {
+        auto color_attachment = vk::AttachmentDescription()
+                                    .setFormat(format)
+                                    .setSamples(vk::SampleCountFlagBits::e1)
+                                    .setLoadOp(clear_color ? vk::AttachmentLoadOp::eClear :
+                                                             vk::AttachmentLoadOp::eDontCare)
+                                    .setStoreOp(vk::AttachmentStoreOp::eStore)
+                                    .setStencilLoadOp(vk::AttachmentLoadOp::eDontCare)
+                                    .setStencilStoreOp(vk::AttachmentStoreOp::eDontCare)
+                                    .setInitialLayout(initial_layout)
+                                    .setFinalLayout(final_layout);
+        auto color_attachment_ref = vk::AttachmentReference()
+                                        .setAttachment(cast_u32(all_attachments.size()))
+                                        .setLayout(vk::ImageLayout::eColorAttachmentOptimal);
+
+        all_attachments.push_back(color_attachment);
+        color_attachment_refs.push_back(color_attachment_ref);
+    }
+    auto depth_attachment_ref = vk::AttachmentReference();
+    if (has_depth) {
+        auto depth_attachment = vk::AttachmentDescription()
+                                    .setFormat(depth_attachment_format)
+                                    .setSamples(vk::SampleCountFlagBits::e1)
+                                    .setLoadOp(clear_depth ? vk::AttachmentLoadOp::eClear :
+                                                             vk::AttachmentLoadOp::eDontCare)
+                                    .setStoreOp(vk::AttachmentStoreOp::eStore);
+        depth_attachment.setStencilLoadOp(vk::AttachmentLoadOp::eDontCare)
+            .setStencilStoreOp(vk::AttachmentStoreOp::eDontCare)
+            .setInitialLayout(vk::ImageLayout::eDepthStencilAttachmentOptimal)
+            .setFinalLayout(vk::ImageLayout::eDepthStencilAttachmentOptimal);
+
+        depth_attachment_ref.setAttachment(cast_u32(all_attachments.size()))
+            .setLayout(vk::ImageLayout::eDepthStencilAttachmentOptimal);
+
+        all_attachments.push_back(depth_attachment);
+    }
+
+    std::vector<vk::SubpassDescription> subpasses;
+    std::vector<vk::SubpassDependency> subpass_dependencies;
+
+    for (u32 i = 0; i < subpass_count; ++i) {
+        auto subpass = vk::SubpassDescription({}, vk::PipelineBindPoint::eGraphics)
+                           .setColorAttachmentCount(cast_u32(color_attachment_refs.size()))
+                           .setPColorAttachments(color_attachment_refs.data())
+                           .setPDepthStencilAttachment(has_depth ? &depth_attachment_ref : nullptr);
+        auto dependency = vk::SubpassDependency()
+                              .setSrcSubpass(i == 0 ? VK_SUBPASS_EXTERNAL : i - 1)
+                              .setDstSubpass(i)
+                              .setSrcStageMask(vk::PipelineStageFlagBits::eColorAttachmentOutput)
+                              .setDstStageMask(vk::PipelineStageFlagBits::eColorAttachmentOutput)
+                              .setSrcAccessMask({})
+                              .setDstAccessMask(vk::AccessFlagBits::eColorAttachmentWrite);
+
+        subpasses.push_back(subpass);
+        subpass_dependencies.push_back(dependency);
+    }
+
+    auto render_pass_ci = vk::RenderPassCreateInfo();
+    render_pass_ci.setAttachmentCount(cast_u32(all_attachments.size()))
+        .setPAttachments(all_attachments.data());
+    render_pass_ci.setSubpassCount(cast_u32(subpasses.size())).setPSubpasses(subpasses.data());
+    render_pass_ci.setDependencyCount(cast_u32(subpass_dependencies.size()))
+        .setPDependencies(subpass_dependencies.data());
+    return device.createRenderPass(render_pass_ci);
 }
 
 }  // namespace vkpbr
