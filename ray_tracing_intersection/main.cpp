@@ -35,15 +35,15 @@ VULKAN_HPP_DEFAULT_DISPATCH_LOADER_DYNAMIC_STORAGE
 
 #include "imgui.h"
 #include "imgui_impl_glfw.h"
+#include "imgui_impl_vk.h"
 
 #include "hello_vulkan.h"
-#include "nvh/cameramanipulator.hpp"
-#include "nvh/fileoperations.hpp"
 #include "nvpsystem.hpp"
-#include "nvvk/appbase_vkpp.hpp"
-#include "nvvk/commands_vk.hpp"
-#include "nvvk/context_vk.hpp"
 
+#include "io.h"
+#include "logging.h"
+
+#define USE_NVCOPY
 
 //////////////////////////////////////////////////////////////////////////
 #define UNUSED(x) (void)(x)
@@ -59,10 +59,7 @@ static void onErrorCallback(int error, const char* description)
 }
 
 // Extra UI
-void renderUI(HelloVulkan& helloVk)
-{
-
-}
+void renderUI(HelloVulkan& helloVk) {}
 
 //////////////////////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////////
@@ -112,51 +109,42 @@ int main(int argc, char** argv)
     // Enabling the extension feature
     vk::PhysicalDeviceRayTracingFeaturesKHR raytracingFeature;
 
-    // Requesting Vulkan extensions and layers
-    nvvk::ContextCreateInfo contextInfo(true);
-    contextInfo.setVersion(1, 2);
-    contextInfo.addInstanceLayer("VK_LAYER_LUNARG_monitor", true);
-    contextInfo.addInstanceExtension(VK_KHR_SURFACE_EXTENSION_NAME);
+    vkpbr::ContextCreateInfo context_ci(/* use_validation=*/true);
+    context_ci.SetVersion(1, 2);
+    context_ci.AddInstanceLayer("VK_LAYER_LUNARG_monitor", /*optional = */ true);
+    context_ci.AddInstanceExtension(
+        {VK_KHR_SURFACE_EXTENSION_NAME, VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME});
 #ifdef WIN32
-    contextInfo.addInstanceExtension(VK_KHR_WIN32_SURFACE_EXTENSION_NAME);
+    context_ci.AddInstanceExtension(VK_KHR_WIN32_SURFACE_EXTENSION_NAME);
 #else
-    contextInfo.addInstanceExtension(VK_KHR_XLIB_SURFACE_EXTENSION_NAME);
-    contextInfo.addInstanceExtension(VK_KHR_XCB_SURFACE_EXTENSION_NAME);
+    context_ci.AddInstanceExtension(
+        {VK_KHR_XLIB_SURFACE_EXTENSION_NAME, VK_KHR_XCB_SURFACE_EXTENSION_NAME});
 #endif
-    contextInfo.addInstanceExtension(VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME);
-    contextInfo.addDeviceExtension(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
-    contextInfo.addDeviceExtension(VK_KHR_DEDICATED_ALLOCATION_EXTENSION_NAME);
-    contextInfo.addDeviceExtension(VK_KHR_GET_MEMORY_REQUIREMENTS_2_EXTENSION_NAME);
-    contextInfo.addDeviceExtension(VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME);
-    contextInfo.addDeviceExtension(VK_EXT_SCALAR_BLOCK_LAYOUT_EXTENSION_NAME);
-    // #VKRay: Activate the ray tracing extension
-    contextInfo.addDeviceExtension(VK_KHR_RAY_TRACING_EXTENSION_NAME, false, &raytracingFeature);
-    contextInfo.addDeviceExtension(VK_KHR_MAINTENANCE3_EXTENSION_NAME);
-    contextInfo.addDeviceExtension(VK_KHR_PIPELINE_LIBRARY_EXTENSION_NAME);
-    contextInfo.addDeviceExtension(VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME);
-    contextInfo.addDeviceExtension(VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME);
+    context_ci.AddDeviceExtension(
+        {VK_KHR_SWAPCHAIN_EXTENSION_NAME, VK_KHR_DEDICATED_ALLOCATION_EXTENSION_NAME,
+         VK_KHR_GET_MEMORY_REQUIREMENTS_2_EXTENSION_NAME, VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME,
+         VK_EXT_SCALAR_BLOCK_LAYOUT_EXTENSION_NAME, VK_KHR_MAINTENANCE3_EXTENSION_NAME,
+         VK_KHR_PIPELINE_LIBRARY_EXTENSION_NAME, VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME,
+         VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME});
+    context_ci.AddDeviceExtension(VK_KHR_RAY_TRACING_EXTENSION_NAME, /*optional=*/false,
+                                  &raytracingFeature);
+    vkpbr::Context vk_context;
+    vk_context.InitInstance(context_ci);
+    auto compatible_gpus = vk_context.GetCompatibleDevices(context_ci);
+    CHECK(!compatible_gpus.empty());
+    vk_context.InitDevice(compatible_gpus[0], context_ci);
 
-    // Creating Vulkan base application
-    nvvk::Context vkctx{};
-    vkctx.initInstance(contextInfo);
-    // Find all compatible devices
-    auto compatibleDevices = vkctx.getCompatibleDevices(contextInfo);
-    assert(!compatibleDevices.empty());
-    // Use a compatible device
-    vkctx.initDevice(compatibleDevices[0], contextInfo);
 
     // Create example
     HelloVulkan helloVk;
 
     // Shares the camera with the app.
     helloVk.SetCameraNavigator(camera_navigator);
+    const vk::SurfaceKHR surface = helloVk.AcquireSurface(vk_context.instance(), window);
+    vk_context.SetGCTQueueWithPresent(surface);
+    helloVk.Setup(vk_context.instance(), vk_context.device(), vk_context.gpu(),
+                  vk_context.GetGctQueueFamilyIndex());
 
-    // Window need to be opened to get the surface on which to draw
-    const vk::SurfaceKHR surface = helloVk.AcquireSurface(vkctx.m_instance, window);
-    vkctx.setGCTQueueWithPresent(surface);
-
-    helloVk.Setup(vkctx.m_instance, vkctx.m_device, vkctx.m_physicalDevice,
-                  vkctx.m_queueGCT.familyIndex);
     helloVk.MakeSurface(surface, SAMPLE_WIDTH, SAMPLE_HEIGHT);
     helloVk.MakeDepthBuffer();
     helloVk.MakeRenderPass();
@@ -166,8 +154,8 @@ int main(int argc, char** argv)
     helloVk.InitGui(0);  // Using sub-pass 0
 
     // Creation of the example
-    //  helloVk.loadModel(nvh::findFile("media/scenes/Medieval_building.obj", defaultSearchPaths));
-    helloVk.LoadModel(nvh::findFile("media/scenes/plane.obj", defaultSearchPaths));
+    //  helloVk.loadModel(io::FindFile("media/scenes/Medieval_building.obj", defaultSearchPaths));
+    helloVk.LoadModel(io::FindFile("media/scenes/plane.obj", defaultSearchPaths));
     helloVk.createSpheres();
 
     helloVk.createOffscreenRender();
@@ -191,7 +179,7 @@ int main(int argc, char** argv)
 
 
     glm::vec4 clearColor   = glm::vec4(1, 1, 1, 1.00f);
-    bool          useRaytracer = true;
+    bool      useRaytracer = true;
 
 
     helloVk.SetupGlfwCallbacks();
@@ -218,26 +206,29 @@ int main(int argc, char** argv)
 
             static int item = 1;
             if (ImGui::Combo("Up Vector", &item, "X\0Y\0Z\0\0")) {
-                //nvmath::vec3f pos, eye, up;
-                //CameraManip.getLookat(pos, eye, up);
-                //up = nvmath::vec3f(item == 0, item == 1, item == 2);
-                //CameraManip.setLookat(pos, eye, up);
+                // nvmath::vec3f pos, eye, up;
+                // CameraManip.getLookat(pos, eye, up);
+                // up = nvmath::vec3f(item == 0, item == 1, item == 2);
+                // CameraManip.setLookat(pos, eye, up);
 
                 vkpbr::CameraNavigator::Camera c = camera_navigator->GetLookAt();
-                glm::vec3 up(item == 0, item == 1, item == 2);
+                glm::vec3                      up(item == 0, item == 1, item == 2);
                 camera_navigator->SetLookAt(c.eye, c.center, up);
             }
-            ImGui::SliderFloat3("Light Position", &helloVk.m_pushConstant.lightPosition.x, -20.f, 20.f);
-            ImGui::SliderFloat("Light Intensity", &helloVk.m_pushConstant.lightIntensity, 0.f, 100.f);
+            ImGui::SliderFloat3("Light Position", &helloVk.m_pushConstant.lightPosition.x, -20.f,
+                                20.f);
+            ImGui::SliderFloat("Light Intensity", &helloVk.m_pushConstant.lightIntensity, 0.f,
+                               100.f);
             ImGui::RadioButton("Point", &helloVk.m_pushConstant.lightType, 0);
             ImGui::SameLine();
             ImGui::RadioButton("Infinite", &helloVk.m_pushConstant.lightType, 1);
             if (ImGui::Button("Reset camera")) {
-                //CameraManip.setMode(nvh::CameraManipulator::Fly);
-                //CameraManip.setLookat(vec3f(20, 20, 20), vec3(0, 1, 0), vec3(0, 1, 0), false);
-                //CameraManip.setMode(nvh::CameraManipulator::Examine);
+                // CameraManip.setMode(nvh::CameraManipulator::Fly);
+                // CameraManip.setLookat(vec3f(20, 20, 20), vec3(0, 1, 0), vec3(0, 1, 0), false);
+                // CameraManip.setMode(nvh::CameraManipulator::Examine);
                 camera_navigator->SetMode(vkpbr::CameraNavigator::Modes::kFly);
-                camera_navigator->SetLookAt(glm::vec3(20, 20, 20), glm::vec3(0, 1, 0), glm::vec3(0, 1, 0), true);
+                camera_navigator->SetLookAt(glm::vec3(20, 20, 20), glm::vec3(0, 1, 0),
+                                            glm::vec3(0, 1, 0), true);
                 camera_navigator->SetMode(vkpbr::CameraNavigator::Modes::kExamine);
             }
 
@@ -307,7 +298,7 @@ int main(int argc, char** argv)
     helloVk.destroyResources();
     helloVk.UnloadContext();
 
-    vkctx.deinit();
+    vk_context.DeInit();
 
     glfwDestroyWindow(window);
     glfwTerminate();

@@ -254,6 +254,172 @@ class BuggyRaytracingBuilder
     u32                          queue_index_ = 0;
 };
 
+struct ContextCreateInfo {
+
+    ContextCreateInfo(bool use_validation = true);
+
+    void SetVersion(int major, int minor);
+    void AddInstanceExtension(const char* name, bool optional = false);
+    void AddInstanceExtension(std::vector<const char*> names, bool optional = false);
+    void AddInstanceLayer(const char* name, bool optional = false);
+    void AddInstanceLayer(std::vector<const char*> names, bool optional = false);
+    void AddDeviceExtension(const char* name, bool optional = false,
+                            void* p_feature_struct = nullptr);
+    void AddDeviceExtension(std::vector<const char*> names, bool optional = false,
+                            std::vector<void*> p_features = {});
+
+    void RemoveInstanceExtension(const char* name);
+    void RemoveInstanceLayer(const char* name);
+    void RemoveDeviceExtension(const char* name);
+
+    // Members
+    // ----------------------------------------------------------------------------------------
+    bool        use_device_groups            = false;
+    u32         compatible_device_index      = 0;
+    const char* app_engine_name              = "nvpro-sample";
+    const char* app_title                    = "nvpro-sample";
+    bool        disable_robust_buffer_access = true;
+    bool        verbose_compatible_devices   = true;
+    bool        verbose_used                 = true;
+    bool        verbose_available            = true;
+
+    // A unified interface for specifying instance layers, instance / device extensions.
+    struct Entry {
+        Entry(const char* n, bool o, void* feature = nullptr, u32 ver = 0)
+            : name(n)
+            , optional(o)
+            , p_feature_struct(feature)
+            , version(ver)
+        {}
+        const char* name             = nullptr;
+        bool        optional         = false;
+        void*       p_feature_struct = nullptr;
+        u32         version          = 0;
+    };
+
+    int api_major = 1;
+    int api_minor = 1;
+
+    std::vector<Entry> instance_layers;
+    std::vector<Entry> instance_extensions;
+    std::vector<Entry> device_extensions;
+    void*              device_create_info_ext = nullptr;
+};
+
+class Context
+{
+  public:
+    Context(Context const&) = delete;
+    Context& operator=(const Context&) = delete;
+
+    Context() = default;
+
+    bool Init(const ContextCreateInfo& context_ci);
+    void DeInit();
+
+    bool InitInstance(const ContextCreateInfo& context_ci);
+    bool InitDevice(u32 device_index, const ContextCreateInfo& context_ci);
+
+    const vk::Device& Device() const { return device_; }
+
+    std::vector<u32>                GetCompatibleDevices(const ContextCreateInfo& context_ci) const;
+    std::vector<vk::PhysicalDevice> GetGpus() const
+    {
+        return instance_.enumeratePhysicalDevices(static_loader_);
+    }
+    std::vector<vk::PhysicalDeviceGroupProperties> GetGpuGroups() const
+    {
+        return instance_.enumeratePhysicalDeviceGroups();
+    }
+    std::vector<vk::ExtensionProperties> GetInstanceExtensions() const
+    {
+        return vk::enumerateInstanceExtensionProperties(nullptr, static_loader_);
+    }
+    std::vector<vk::LayerProperties> GetInstanceLayers() const
+    {
+        return vk::enumerateInstanceLayerProperties(static_loader_);
+    }
+    std::vector<vk::ExtensionProperties> GetGpuExtensions(vk::PhysicalDevice gpu) const
+    {
+        return gpu.enumerateDeviceExtensionProperties(nullptr, static_loader_);
+    }
+
+    bool HasMandatoryExtensions(vk::PhysicalDevice gpu, const ContextCreateInfo& context_ci,
+                                bool verbose) const;
+
+    // Ensures thet G/C/T queue can present to the provided surface. Sets the GCT queue to be such
+    // a queue the GPU supports it.
+    // Returns false if fails to set.
+    bool SetGCTQueueWithPresent(vk::SurfaceKHR surface);
+
+    u32 GetQueueFamily(vk::QueueFlags flags_supported, vk::QueueFlags flags_disabled = {},
+                       vk::SurfaceKHR surface = nullptr);
+
+    // Checks if the context has the optional extension activated.
+    bool HasDeviceExtension(const char* name) const;
+    bool HasInstanceExtension(const char* name) const;
+
+    vk::Instance       instance() const { return instance_; }
+    vk::Device         device() const { return device_; }
+    vk::PhysicalDevice gpu() const { return gpu_; }
+    vk::Queue          GetGctQueue() const { return queue_graphics_compute_transfer_.queue; }
+    u32 GetGctQueueFamilyIndex() const { return queue_graphics_compute_transfer_.family_index; }
+
+  private:
+    vk::Instance       instance_;
+    vk::Device         device_;
+    vk::PhysicalDevice gpu_;
+    struct GpuInfo {
+        GpuInfo()                                                = default;
+        VkPhysicalDeviceMemoryProperties       memory_properties = {};
+        std::vector<vk::QueueFamilyProperties> queue_properties;
+
+        vk::PhysicalDeviceFeatures         features_100;
+        vk::PhysicalDeviceVulkan11Features features_110;
+        vk::PhysicalDeviceVulkan12Features features_120;
+
+        vk::PhysicalDeviceProperties         properties_100;
+        vk::PhysicalDeviceVulkan11Properties properties_110;
+        vk::PhysicalDeviceVulkan12Properties properties_120;
+    } gpu_info_;
+
+    struct Queue {
+        vk::Queue queue;
+        u32       family_index = ~0;
+    };
+    Queue queue_graphics_compute_transfer_;
+    Queue queue_transfer_;
+    Queue queue_compute_;
+
+    std::vector<const char*> used_instance_layers_;
+    std::vector<const char*> used_instance_extensions_;
+    std::vector<const char*> used_device_extensions_;
+
+    PFN_vkCreateDebugUtilsMessengerEXT  fp_createDebugUtilsMessengerEXT_ = nullptr;
+    PFN_vkDestroyDebugUtilsMessengerEXT fp_destroyDebugUtilsMessengerEXT = nullptr;
+    VkDebugUtilsMessengerEXT            debug_messenger_                 = VK_NULL_HANDLE;
+
+    void InitDebugUtils();
+
+    vk::Result FillFilterNameArray(std::vector<const char*>*                    used,
+                                   const std::vector<vk::LayerProperties>&      properties,
+                                   const std::vector<ContextCreateInfo::Entry>& requested);
+
+    vk::Result FillFilterNameArray(std::vector<const char*>*                    used,
+                                   const std::vector<vk::ExtensionProperties>&  properties,
+                                   const std::vector<ContextCreateInfo::Entry>& requested,
+                                   std::vector<void*>&                          feature_structs);
+
+    bool CheckEntryArray(const std::vector<vk::ExtensionProperties>&  properties,
+                         const std::vector<ContextCreateInfo::Entry>& requested,
+                         bool                                         verbose) const;
+
+    static void InitGpuInfo(GpuInfo* info, vk::PhysicalDevice gpu, u32 version_major,
+                            u32 version_minor);
+
+    static vk::DispatchLoaderStatic static_loader_;
+};
+
 }  // namespace vkpbr
 
 #endif  // !NVCOPY_VK_UTILS_H_

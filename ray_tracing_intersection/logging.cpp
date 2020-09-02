@@ -2,6 +2,8 @@
 #include "logging.h"
 #ifdef LOGGING_H_IMPLEMENTATION
 
+#include "types.h"
+
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
@@ -30,7 +32,7 @@ Logger::Logger(LogSeverity severity, const char* file_name, int line_number)
     ++last_file_name;
 
     static constexpr char kLevelAbbrev[] = {'I', 'W', 'E', 'F'};
-    (*this) << kLevelAbbrev[severity] << ' ' << buffer << "  " << last_file_name << ':'
+    (*this) << kLevelAbbrev[cast_i32(severity)] << ' ' << buffer << "  " << last_file_name << ':'
             << line_number << "] ";
 }
 
