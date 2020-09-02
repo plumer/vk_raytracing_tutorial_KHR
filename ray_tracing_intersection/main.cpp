@@ -38,12 +38,9 @@ VULKAN_HPP_DEFAULT_DISPATCH_LOADER_DYNAMIC_STORAGE
 #include "imgui_impl_vk.h"
 
 #include "hello_vulkan.h"
-#include "nvpsystem.hpp"
 
 #include "io.h"
 #include "logging.h"
-
-#define USE_NVCOPY
 
 //////////////////////////////////////////////////////////////////////////
 #define UNUSED(x) (void)(x)
@@ -94,16 +91,26 @@ int main(int argc, char** argv)
         return 1;
     }
 
+    std::string executable_path;    
+    {
+        std::string logfile = std::string("log_") + std::string(PROJECT_NAME) + std::string(".txt");
+        nvprintSetLogFileName(logfile.c_str());
 
-    // setup some basic things for the sample, logging file for example
-    NVPSystem system(argv[0], PROJECT_NAME);
+        std::string exe = argv[0];
+        std::replace(exe.begin(), exe.end(), '\\', '/');
+
+        size_t last = exe.rfind('/');
+        if (last != std::string::npos) {
+            executable_path = exe.substr(0, last) + std::string("/");
+        }
+    }
 
     // Search path for shaders and other media
     defaultSearchPaths = {
         PROJECT_ABSDIRECTORY,
         PROJECT_ABSDIRECTORY "../",
-        NVPSystem::exePath() + std::string(PROJECT_RELDIRECTORY),
-        NVPSystem::exePath() + std::string(PROJECT_RELDIRECTORY) + std::string("../"),
+        executable_path + std::string(PROJECT_RELDIRECTORY),
+        executable_path + std::string(PROJECT_RELDIRECTORY) + std::string("../"),
     };
 
     // Enabling the extension feature
