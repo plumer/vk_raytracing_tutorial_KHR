@@ -133,6 +133,20 @@ class HelloVulkan : public vkpbr::AppBase
     vkpbr::UniqueMemoryTexture   m_offscreenDepth;
     vk::Format                   m_offscreenDepthFormat{vk::Format::eD32Sfloat};
 
+    // Binding indices for the regular descriptor set.
+    enum DSBindings {
+        kDsbCameraMatrices = 0,
+        kDsbMaterials,
+        kDsbSceneDesc,
+        kDsbTextures,
+        kDsbMaterialsIndex,
+        kDsbVertices,
+        kDsbIndices,
+        kDsbSpheres
+    };
+    // Binding indices for the ray tracing descriptor set.
+    enum RtDSBindings { kRtDsbAccelStruct = 0, kRtDsbOutputImage };
+
     // #VKRay
     void                              initRayTracing();
     vkpbr::RaytracingBuilderKHR::Blas objectToVkGeometryKHR(const ObjModel& model);

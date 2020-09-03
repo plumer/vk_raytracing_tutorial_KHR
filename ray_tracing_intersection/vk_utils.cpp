@@ -148,6 +148,7 @@ u32 DescriptorSetBindings::GetCount(u32 binding_index) const
 vk::DescriptorSetLayout DescriptorSetBindings::MakeLayout(
     vk::Device device, vk::DescriptorSetLayoutCreateFlags flags) const
 {
+    // TODO: checks if all binding indices are distinct.
     auto ds_layout_ci =
         vk::DescriptorSetLayoutCreateInfo().setBindingCount(size()).setPBindings(data()).setFlags(
             flags);

@@ -91,10 +91,11 @@ int main(int argc, char** argv)
         return 1;
     }
 
-    std::string executable_path;    
+    // Search path for shaders and other media
+    // --------------------------------------------------------------------------------------------
+    std::string executable_path;
     {
         std::string logfile = std::string("log_") + std::string(PROJECT_NAME) + std::string(".txt");
-        nvprintSetLogFileName(logfile.c_str());
 
         std::string exe = argv[0];
         std::replace(exe.begin(), exe.end(), '\\', '/');
@@ -104,8 +105,6 @@ int main(int argc, char** argv)
             executable_path = exe.substr(0, last) + std::string("/");
         }
     }
-
-    // Search path for shaders and other media
     defaultSearchPaths = {
         PROJECT_ABSDIRECTORY,
         PROJECT_ABSDIRECTORY "../",
@@ -116,6 +115,8 @@ int main(int argc, char** argv)
     // Enabling the extension feature
     vk::PhysicalDeviceRayTracingFeaturesKHR raytracingFeature;
 
+    // Creates the context: instance, device and queues.
+    // --------------------------------------------------------------------------------------------
     vkpbr::ContextCreateInfo context_ci(/* use_validation=*/true);
     context_ci.SetVersion(1, 2);
     context_ci.AddInstanceLayer("VK_LAYER_LUNARG_monitor", /*optional = */ true);
@@ -142,6 +143,7 @@ int main(int argc, char** argv)
     CHECK(vk_context.InitDevice(compatible_gpus[0], context_ci));
 
     // Create example
+    // --------------------------------------------------------------------------------------------
     HelloVulkan helloVk;
 
     // Shares the camera with the app.

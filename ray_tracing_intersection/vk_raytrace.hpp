@@ -53,12 +53,8 @@ const VkAccelerationStructureNV& tlas = m.rtBuilder.getAccelerationStructure()
 #include <mutex>
 #include <vulkan/vulkan.h>
 
-#include "nvh/nvprint.hpp"
-#include "nvmath/nvmath.h"
-
-#include "nvh/nvprint.hpp"
-
-#include "../../vk_raytracing_tutorial_KHR/ray_tracing_intersection/vk_utils.h"
+#include "vk_utils.h"
+#include "logging.h"
 
 namespace vkpbr {
 struct RaytracingBuilderKHR {
@@ -167,8 +163,6 @@ struct RaytracingBuilderKHR {
 
             vk::MemoryRequirements2 reqMem =
                 m_device.getAccelerationStructureMemoryRequirementsKHR(memoryRequirementsInfo);
-            // vkGetAccelerationStructureMemoryRequirementsKHR(m_device, &memoryRequirementsInfo,
-            //&reqMem);
             vk::DeviceSize scratchSize = reqMem.memoryRequirements.size;
             std::cout << "scratch size: " << scratchSize << std::endl;
 
@@ -178,10 +172,7 @@ struct RaytracingBuilderKHR {
             // Original size
             memoryRequirementsInfo.type =
                 vk::AccelerationStructureMemoryRequirementsTypeKHR::eObject;
-            // VK_ACCELERATION_STRUCTURE_MEMORY_REQUIREMENTS_TYPE_OBJECT_KHR;
             reqMem = m_device.getAccelerationStructureMemoryRequirementsKHR(memoryRequirementsInfo);
-            // vkGetAccelerationStructureMemoryRequirementsKHR(m_device, &memoryRequirementsInfo,
-            //&reqMem);
             originalSizes[idx] = reqMem.memoryRequirements.size;
 
             idx++;
@@ -211,7 +202,6 @@ struct RaytracingBuilderKHR {
 
 
         // Create a command buffer containing all the BLAS builds
-        // nvvk::CommandPool            genCmdBuf(m_device, m_queueIndex);
         vkpbr::CommandPool             genCmdBuf(m_device, m_queueIndex);
         int                            ctr{0};
         std::vector<vk::CommandBuffer> allCmdBufs;
@@ -243,12 +233,6 @@ struct RaytracingBuilderKHR {
 
             // Since the scratch buffer is reused across builds, we need a barrier to ensure one
             // build is finished before starting the next one
-            // VkMemoryBarrier barrier{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
-            // barrier.srcAccessMask = VK_ACCESS_ACCELERATION_STRUCTURE_WRITE_BIT_KHR;
-            // barrier.dstAccessMask = VK_ACCESS_ACCELERATION_STRUCTURE_READ_BIT_KHR;
-            // vkCmdPipelineBarrier(cmdBuf, VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR,
-            //                     VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR, 0, 1,
-            //                     &barrier, 0, nullptr, 0, nullptr);
 
             auto barrier_pp =
                 vk::MemoryBarrier()
@@ -260,9 +244,6 @@ struct RaytracingBuilderKHR {
 
             // Query the compact size
             if (doCompaction) {
-                /*vkCmdWriteAccelerationStructuresPropertiesKHR(
-                    cmdBuf, 1, reinterpret_cast<VkAccelerationStructureKHR*>(&blas.as.handle),
-                    VK_QUERY_TYPE_ACCELERATION_STRUCTURE_COMPACTED_SIZE_KHR, queryPool, ctr++);*/
                 cmdBuf.writeAccelerationStructuresPropertiesKHR(
                     blas.as.handle, vk::QueryType::eAccelerationStructureCompactedSizeKHR,
                     queryPool, ctr++);
@@ -277,9 +258,6 @@ struct RaytracingBuilderKHR {
 
             // Get the size result back
             std::vector<VkDeviceSize> compactSizes(m_blas.size());
-            // vkGetQueryPoolResults(m_device, queryPool, 0, (uint32_t)compactSizes.size(),
-            //                      compactSizes.size() * sizeof(VkDeviceSize), compactSizes.data(),
-            //                      sizeof(VkDeviceSize), VK_QUERY_RESULT_WAIT_BIT);
             m_device.getQueryPoolResults<vk::DeviceSize>(
                 queryPool, 0, cast_u32(compactSizes.size()), compactSizes,
                 // DataSize(compactSizes), compactSizes.data(),
@@ -290,7 +268,6 @@ struct RaytracingBuilderKHR {
             std::vector<UniqueMemoryAccelStruct> cleanupAS(m_blas.size());
             uint32_t                             totOriginalSize{0}, totCompactSize{0};
             for (int i = 0; i < m_blas.size(); i++) {
-                // LOGI("Reducing %i, from %d to %d \n", i, originalSizes[i], compactSizes[i]);
                 totOriginalSize += (uint32_t)originalSizes[i];
                 totCompactSize += (uint32_t)compactSizes[i];
 
@@ -307,7 +284,6 @@ struct RaytracingBuilderKHR {
                 copyInfo.dst  = as.handle;
                 copyInfo.mode = vk::CopyAccelerationStructureModeKHR::eCompact;
                 cmdBuf.copyAccelerationStructureKHR(copyInfo);
-                // vkCmdCopyAccelerationStructureKHR(cmdBuf, &copyInfo);
                 cleanupAS[i] = m_blas[i].as;
                 m_blas[i].as = as;
             }
@@ -317,14 +293,13 @@ struct RaytracingBuilderKHR {
             for (auto as : cleanupAS)
                 as.DestroyFrom(m_device);
 
-            LOGI("------------------\n");
-            LOGI("Reducing from: %u to: %u = %u (%2.2f%s smaller) \n", totOriginalSize,
+            LOG(INFO) << "------------------\n";
+            printf("Reducing from: %u to: %u = %u (%2.2f%s smaller) \n", totOriginalSize,
                  totCompactSize, totOriginalSize - totCompactSize,
                  (totOriginalSize - totCompactSize) / float(totOriginalSize) * 100.f, "%%");
         }
 
         m_device.destroyQueryPool(queryPool);
-        // vkDestroyQueryPool(m_device, queryPool, nullptr);
         scratchBuffer.DestroyFrom(m_device);
         m_alloc->ReleaseAllStagingBuffers();
     }
@@ -390,14 +365,11 @@ struct RaytracingBuilderKHR {
         vk::AccelerationStructureMemoryRequirementsInfoKHR memoryRequirementsInfo;
         memoryRequirementsInfo.type =
             vk::AccelerationStructureMemoryRequirementsTypeKHR::eBuildScratch;
-        // VK_ACCELERATION_STRUCTURE_MEMORY_REQUIREMENTS_TYPE_BUILD_SCRATCH_KHR;
         memoryRequirementsInfo.accelerationStructure = m_tlas.as.handle;
         memoryRequirementsInfo.buildType = vk::AccelerationStructureBuildTypeKHR::eDevice;
 
         vk::MemoryRequirements2 reqMem =
             m_device.getAccelerationStructureMemoryRequirementsKHR(memoryRequirementsInfo);
-        // vkGetAccelerationStructureMemoryRequirementsKHR(m_device, &memoryRequirementsInfo,
-        // &reqMem);
         vk::DeviceSize scratchSize = reqMem.memoryRequirements.size;
 
 
@@ -406,7 +378,6 @@ struct RaytracingBuilderKHR {
             m_alloc->MakeBuffer(scratchSize, vk::BufferUsageFlagBits::eRayTracingKHR
                                                  | vk::BufferUsageFlagBits::eShaderDeviceAddress);
         vk::BufferDeviceAddressInfo bufferInfo{scratchBuffer.handle};
-        // bufferInfo.buffer              = scratchBuffer.handle;
         vk::DeviceAddress scratchAddress = m_device.getBufferAddress(bufferInfo);
 
 
@@ -428,24 +399,14 @@ struct RaytracingBuilderKHR {
         vk::DeviceSize instanceDescsSizeInBytes =
             instances.size() * sizeof(decltype(geometryInstances.front()));
 
-        // Allocate the instance buffer and copy its contents from host to device
-        // memory
+        // Allocate the instance buffer and copy its contents from host to device memory
         m_instBuffer = m_alloc->MakeBuffer(cmdBuf, geometryInstances,
                                            vk::BufferUsageFlagBits::eRayTracingKHR
                                                | vk::BufferUsageFlagBits::eShaderDeviceAddress);
         m_debug.setObjectName(m_instBuffer.handle, "TLASInstances");
-        // VkBufferDeviceAddressInfo bufferInfo{VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO};
         bufferInfo.buffer                 = m_instBuffer.handle;
         vk::DeviceAddress instanceAddress = m_device.getBufferAddress(bufferInfo);
 
-        // Make sure the copy of the instance buffer are copied before triggering the
-        // acceleration structure build
-        // VkMemoryBarrier barrier{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
-        // barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-        // barrier.dstAccessMask = VK_ACCESS_ACCELERATION_STRUCTURE_WRITE_BIT_KHR;
-        // vkCmdPipelineBarrier(cmdBuf, VK_PIPELINE_STAGE_TRANSFER_BIT,
-        //                     VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR, 0, 1,
-        //                     &barrier, 0, nullptr, 0, nullptr);
         auto barrier_pp = vk::MemoryBarrier()
                               .setSrcAccessMask(vk::AccessFlagBits::eTransferWrite)
                               .setDstAccessMask(vk::AccessFlagBits::eAccelerationStructureWriteKHR);
@@ -544,7 +505,6 @@ struct RaytracingBuilderKHR {
         VkBufferCopy region{0, 0, bufferSize};
         vkCmdCopyBuffer(cmdBuf, stagingBuffer.handle, m_instBuffer.handle, 1, &region);
 
-        // VkBufferDeviceAddressInfo bufferInfo{VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO};
         bufferInfo.buffer               = m_instBuffer.handle;
         VkDeviceAddress instanceAddress = vkGetBufferDeviceAddress(m_device, &bufferInfo);
 
@@ -658,9 +618,7 @@ struct RaytracingBuilderKHR {
     // Top-level acceleration structure
     struct Tlas {
         UniqueMemoryAccelStruct              as;
-        vk::AccelerationStructureCreateInfoKHR asInfo/*{
-            VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR, nullptr, 0,
-             VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR}*/
+        vk::AccelerationStructureCreateInfoKHR asInfo
             = vk::AccelerationStructureCreateInfoKHR(0, vk::AccelerationStructureTypeKHR::eTopLevel);
         vk::BuildAccelerationStructureFlagsKHR flags;
     };
