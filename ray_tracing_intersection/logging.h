@@ -24,7 +24,7 @@ class Logger : public std::ostringstream
     if (condition)                                                                                 \
         0;                                                                                         \
     else                                                                                           \
-        LOG(FATAL) << "Condition " << #condition << " failed: "
+        LOG(FATAL) << "Condition \"" << #condition << "\" failed: "
 
 #define CHECK_EQ(val1, val2) CHECK_COMPARE(==, val1, val2)
 #define CHECK_NE(val1, val2) CHECK_COMPARE(!=, val1, val2)

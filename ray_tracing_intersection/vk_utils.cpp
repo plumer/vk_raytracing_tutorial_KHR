@@ -661,14 +661,13 @@ void ContextCreateInfo::AddInstanceLayer(std::vector<const char*> names, bool op
         instance_layers.emplace_back(name, optional);
 }
 
-void ContextCreateInfo::AddDeviceExtension(const char* name, bool optional,
-                                                  void* p_feature_struct)
+void ContextCreateInfo::AddDeviceExtension(const char* name, bool optional, void* p_feature_struct)
 {
     device_extensions.emplace_back(name, optional, p_feature_struct);
 }
 
 void ContextCreateInfo::AddDeviceExtension(std::vector<const char*> names, bool optional,
-                                                  std::vector<void*> p_features)
+                                           std::vector<void*> p_features)
 {
     if (p_features.empty()) {
         for (const char* name : names)
@@ -847,7 +846,7 @@ void Context::DeInit()
 
 bool Context::InitInstance(const ContextCreateInfo& context_ci)
 {
-    vk::DynamicLoader dl;
+    vk::DynamicLoader         dl;
     PFN_vkGetInstanceProcAddr fp_vkGetInstanceProcAddr =
         dl.getProcAddress<PFN_vkGetInstanceProcAddr>("vkGetInstanceProcAddr");
     VULKAN_HPP_DEFAULT_DISPATCHER.init(fp_vkGetInstanceProcAddr);
@@ -857,7 +856,6 @@ bool Context::InitInstance(const ContextCreateInfo& context_ci)
             .setPApplicationName(context_ci.app_title)
             .setPEngineName(context_ci.app_engine_name)
             .setApiVersion(VK_MAKE_VERSION(context_ci.api_major, context_ci.api_minor, 0));
-    u32 count = 0;
     if (context_ci.verbose_used) {
         u32 version = vk::enumerateInstanceVersion(static_loader_);
         LOG(INFO) << "Vulkan version: ";
@@ -866,7 +864,7 @@ bool Context::InitInstance(const ContextCreateInfo& context_ci)
         printf(" - requesting: %d.%d.%d\n", context_ci.api_major, context_ci.api_minor, 0);
     }
 
-    {
+    {  // Checks if all the required layers are supported.
         auto layer_properties = GetInstanceLayers();
 
         if (FillFilterNameArray(&used_instance_layers_, layer_properties,
@@ -877,37 +875,48 @@ bool Context::InitInstance(const ContextCreateInfo& context_ci)
         if (context_ci.verbose_available) {
             LOG(INFO) << "-------------------------------";
             LOG(INFO) << "Available Instance Layers: ";
-            for (auto prop : layer_properties) {
-                printf(" %s (ver. %x %x) : %s\n", prop.layerName, prop.specVersion,
-                       prop.implementationVersion, prop.description);
+            size_t max_width = 0;
+            for (const auto& prop : layer_properties)
+                max_width = std::max(max_width, strlen(prop.layerName));
+            for (const auto& prop : layer_properties) {
+                printf(" - %-*s (ver. %x %x) : %s\n", cast_u32(max_width + 1), prop.layerName,
+                       prop.specVersion, prop.implementationVersion, prop.description);
             }
+            putchar('\n');
         }
     }
-    {  // Gets all extensions
+
+    {  // Checks if all the required instance extensions are supported.
         auto extension_properties = GetInstanceExtensions();
 
         std::vector<void*> features_structs;
         if (FillFilterNameArray(&used_instance_extensions_, extension_properties,
-                                context_ci.instance_extensions, features_structs)
+                                context_ci.instance_extensions, &features_structs)
             != vk::Result::eSuccess)
             return false;
-
         if (context_ci.verbose_available) {
+            size_t max_width = 0;
+            for (const auto& prop : extension_properties)
+                max_width = std::max(max_width, strlen(prop.extensionName));
             LOG(INFO) << "\nAvailable Instance Extensions :";
             for (auto prop : extension_properties) {
-                printf(" %s (ver. %d)\n", prop.extensionName, prop.specVersion);
+                printf(" - %-*s (ver. %d)\n", cast_i32(max_width + 1), prop.extensionName,
+                       prop.specVersion);
             }
+            putchar('\n');
         }
     }
     if (context_ci.verbose_used) {
         LOG(INFO) << "-----------------\nUsed Instance Layers: ";
         for (auto layer : used_instance_layers_) {
-            LOG(INFO) << " " << layer;
+            printf(" - %s\n", layer);
         }
+        putchar('\n');
         LOG(INFO) << "-----------------\nUsed Instance Extensions: ";
         for (auto ext : used_instance_extensions_) {
-            LOG(INFO) << " " << ext;
+            printf(" - %s\n", ext);
         }
+        putchar('\n');
     }
 
     auto instance_ci = vk::InstanceCreateInfo()
@@ -920,6 +929,7 @@ bool Context::InitInstance(const ContextCreateInfo& context_ci)
     instance_ = vk::createInstance(instance_ci, nullptr, static_loader_);
     VULKAN_HPP_DEFAULT_DISPATCHER.init(instance_);
 
+    // Creates the debug util messenger if the corresponding extension exists.
     for (const auto& ext : used_instance_extensions_) {
         if (std::string_view(ext) == VK_EXT_DEBUG_UTILS_EXTENSION_NAME) {
             InitDebugUtils();
@@ -986,6 +996,8 @@ bool Context::InitDevice(u32 device_index, const ContextCreateInfo& context_ci)
     LOG_IF(WARNING, !queue_family_general_purpose) << "couldn't find queue that supports graphics, "
                                                       "compute and transfer at the same time";
 
+    // Prepares the information to create the device.
+    // --------------------------------------------------------------------------------------------
     auto device_ci = vk::DeviceCreateInfo()
                          .setQueueCreateInfoCount(cast_u32(queue_cis.size()))
                          .setPQueueCreateInfos(queue_cis.data());
@@ -994,39 +1006,45 @@ bool Context::InitDevice(u32 device_index, const ContextCreateInfo& context_ci)
 
     if (context_ci.verbose_available) {
         LOG(INFO) << "\nAvailable GPU Extensions: ";
+        size_t max_width = 0;
+        for (auto& prop : extension_props)
+            max_width = std::max(max_width, strlen(prop.extensionName));
         for (auto& prop : extension_props) {
-            printf(" %s (ver. %d)\n", prop.extensionName, prop.specVersion);
+            printf(" - %-*s (ver. %d)\n", cast_u32(max_width + 1), prop.extensionName,
+                   prop.specVersion);
         }
+        putchar('\n');
     }
 
     if (FillFilterNameArray(&used_device_extensions_, extension_props, context_ci.device_extensions,
-                            feature_structures)
+                            &feature_structures)
         != vk::Result::eSuccess) {
         DeInit();
         return false;
     }
 
     if (context_ci.verbose_used) {
-        LOG(INFO) << "\nUsed GPU Extensions :\n";
+        LOG(INFO) << "\nUsed GPU Extensions :";
         for (auto& ext : used_device_extensions_) {
-            LOG(INFO) << "  " << ext;
+            printf(" - %s\n", ext);
         }
+        putchar('\n');
     }
 
     struct ExtensionHeader {
         vk::StructureType struct_type;
         void*             p_next;
     };
-    // Uses feature_2 chain to append extensions
+
+    // Organizes all feature structures as a chain and appends it at the end of features2 chain.
     if (!feature_structures.empty()) {
-        for (size_t i = 0; i < feature_structures.size(); ++i) {
+        feature_structures.push_back(nullptr);
+        for (size_t i = 0; i < feature_structures.size()-1; ++i) {
             auto* header = reinterpret_cast<ExtensionHeader*>(feature_structures[i]);
             CHECK(header);
-            header->p_next =
-                (i < feature_structures.size() - 1) ? feature_structures[i + 1] : nullptr;
+            header->p_next = feature_structures[i + 1];
         }
 
-        // Appends to the end of current feature_2 struct.
         ExtensionHeader* last_core_feature = reinterpret_cast<ExtensionHeader*>(&features2);
         while (last_core_feature->p_next != nullptr)
             last_core_feature = reinterpret_cast<ExtensionHeader*>(last_core_feature->p_next);
@@ -1068,11 +1086,14 @@ bool Context::InitDevice(u32 device_index, const ContextCreateInfo& context_ci)
     if (device_create_chain)
         device_create_chain->p_next = nullptr;
 
+    // Loads extensions (function pointers) supported by the device.
+    // --------------------------------------------------------------------------------------------
     load_VK_EXTENSION_SUBSET(instance_, vkGetInstanceProcAddr, device_, vkGetDeviceProcAddr);
 
     VULKAN_HPP_DEFAULT_DISPATCHER.init(device_);
 
-    // Gets default queues.
+    // Retrieves default queues.
+    // --------------------------------------------------------------------------------------------
     u32 queue_family_index = 0;
     for (auto& queue_prop : gpu_info_.queue_properties) {
         if (FlagsMatch(queue_prop.queueFlags, vk::QueueFlagBits::eGraphics
@@ -1160,13 +1181,6 @@ bool Context::SetGCTQueueWithPresent(vk::SurfaceKHR surface)
     return false;
 }
 
-u32 Context::GetQueueFamily(vk::QueueFlags flags_supported, vk::QueueFlags flags_disabled,
-                            vk::SurfaceKHR surface)
-{
-    LOG(FATAL) << "unused function";
-    return u32();
-}
-
 bool Context::HasDeviceExtension(const char* name) const
 {
     for (const auto& ext : used_instance_extensions_) {
@@ -1211,7 +1225,7 @@ vk::Result Context::FillFilterNameArray(std::vector<const char*>*               
                                         const std::vector<vk::LayerProperties>&      properties,
                                         const std::vector<ContextCreateInfo::Entry>& requested)
 {
-    for (const auto &entry : requested) {
+    for (const auto& entry : requested) {
         bool found = false;
         for (const auto& prop : properties) {
             if (std::string_view(entry.name) == prop.layerName) {
@@ -1231,9 +1245,12 @@ vk::Result Context::FillFilterNameArray(std::vector<const char*>*               
 vk::Result Context::FillFilterNameArray(std::vector<const char*>*                    used,
                                         const std::vector<vk::ExtensionProperties>&  properties,
                                         const std::vector<ContextCreateInfo::Entry>& requested,
-                                        std::vector<void*>& feature_structs)
+                                        std::vector<void*>* feature_structs)
 {
+    CHECK(feature_structs);
+    CHECK(used);
     for (const auto& entry : requested) {
+        // Looks for the extension name in the supported properties.
         bool found = false;
         for (const auto& prop : properties) {
             if (std::string_view(entry.name) == prop.extensionName
@@ -1245,7 +1262,7 @@ vk::Result Context::FillFilterNameArray(std::vector<const char*>*               
         if (found) {
             used->push_back(entry.name);
             if (entry.p_feature_struct)
-                feature_structs.push_back(entry.p_feature_struct);
+                feature_structs->push_back(entry.p_feature_struct);
         } else if (!entry.optional) {
             LOG(WARNING) << "vk::Result::eErrorExtensionNotPresent: " << entry.name << " - "
                          << entry.version;
@@ -1255,17 +1272,17 @@ vk::Result Context::FillFilterNameArray(std::vector<const char*>*               
     return vk::Result::eSuccess;
 }
 
-bool Context::CheckEntryArray(const std::vector<vk::ExtensionProperties>&  properties,
+bool Context::CheckEntryArray(const std::vector<vk::ExtensionProperties>&  supported_properties,
                               const std::vector<ContextCreateInfo::Entry>& requested,
                               bool                                         verbose) const
 {
-    std::set<std::string> supported_extensions;
-    for (const auto& prop : properties)
-        supported_extensions.insert(prop.extensionName);
+    std::set<std::string> supported_names;
+    for (const auto& prop : supported_properties)
+        supported_names.insert(prop.extensionName);
     for (const auto& entry : requested) {
         // Checks if `entry` is in properties.
-        auto iter = supported_extensions.find(entry.name);
-        if (iter == supported_extensions.end() && entry.optional) {
+        auto iter = supported_names.find(entry.name);
+        if (iter == supported_names.end() && !entry.optional) {
             LOG_IF(WARNING, verbose) << "Can't locate mandatory extension " << entry.name;
             return false;
         }
@@ -1273,6 +1290,7 @@ bool Context::CheckEntryArray(const std::vector<vk::ExtensionProperties>&  prope
     return true;
 }
 
+// static method
 void Context::InitGpuInfo(GpuInfo* info, vk::PhysicalDevice gpu, u32 version_major,
                           u32 version_minor)
 {

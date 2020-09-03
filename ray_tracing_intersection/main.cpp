@@ -139,17 +139,16 @@ int main(int argc, char** argv)
     vk_context.InitInstance(context_ci);
     auto compatible_gpus = vk_context.GetCompatibleDevices(context_ci);
     CHECK(!compatible_gpus.empty());
-    vk_context.InitDevice(compatible_gpus[0], context_ci);
-
+    CHECK(vk_context.InitDevice(compatible_gpus[0], context_ci));
 
     // Create example
     HelloVulkan helloVk;
 
     // Shares the camera with the app.
     helloVk.SetCameraNavigator(camera_navigator);
-    const vk::SurfaceKHR surface = helloVk.AcquireSurface(vk_context.instance(), window);
+    const vk::SurfaceKHR surface = helloVk.AcquireSurface(vk_context.Instance(), window);
     vk_context.SetGCTQueueWithPresent(surface);
-    helloVk.Setup(vk_context.instance(), vk_context.device(), vk_context.gpu(),
+    helloVk.Setup(vk_context.Instance(), vk_context.Device(), vk_context.Gpu(),
                   vk_context.GetGctQueueFamilyIndex());
 
     helloVk.MakeSurface(surface, SAMPLE_WIDTH, SAMPLE_HEIGHT);
@@ -213,11 +212,6 @@ int main(int argc, char** argv)
 
             static int item = 1;
             if (ImGui::Combo("Up Vector", &item, "X\0Y\0Z\0\0")) {
-                // nvmath::vec3f pos, eye, up;
-                // CameraManip.getLookat(pos, eye, up);
-                // up = nvmath::vec3f(item == 0, item == 1, item == 2);
-                // CameraManip.setLookat(pos, eye, up);
-
                 vkpbr::CameraNavigator::Camera c = camera_navigator->GetLookAt();
                 glm::vec3                      up(item == 0, item == 1, item == 2);
                 camera_navigator->SetLookAt(c.eye, c.center, up);
@@ -230,9 +224,6 @@ int main(int argc, char** argv)
             ImGui::SameLine();
             ImGui::RadioButton("Infinite", &helloVk.m_pushConstant.lightType, 1);
             if (ImGui::Button("Reset camera")) {
-                // CameraManip.setMode(nvh::CameraManipulator::Fly);
-                // CameraManip.setLookat(vec3f(20, 20, 20), vec3(0, 1, 0), vec3(0, 1, 0), false);
-                // CameraManip.setMode(nvh::CameraManipulator::Examine);
                 camera_navigator->SetMode(vkpbr::CameraNavigator::Modes::kFly);
                 camera_navigator->SetLookAt(glm::vec3(20, 20, 20), glm::vec3(0, 1, 0),
                                             glm::vec3(0, 1, 0), true);

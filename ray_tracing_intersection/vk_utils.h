@@ -165,7 +165,6 @@ class DescriptorSetBindings
 };
 
 struct ContextCreateInfo {
-
     ContextCreateInfo(bool use_validation = true);
 
     void SetVersion(int major, int minor);
@@ -224,19 +223,47 @@ class Context
 
     Context() = default;
 
+    // Creates an instance, looks for compatible GPUs supporting required extensions, and creates a
+    // logical device.
     bool Init(const ContextCreateInfo& context_ci);
     void DeInit();
 
+    /**
+     * \brief Makes the instance, given application name, engine name, and VK version
+     * number. All required layers and extensions in the context create info are checked and cached
+     * before the instance is created.
+     * Creates a debug util messenger if VK_EXT_DEBUG_UTILS is specified in the argument.
+     */
     bool InitInstance(const ContextCreateInfo& context_ci);
+
+    /**
+     * Creates the device from the given GPU index (i.e., GetGpus()[device_index]) and
+     * retrieves queues. Features and properties under the Vulkan API version specified in
+     * `context_ci` are retrieved and used to create the device.
+     *
+     * GPU extensions required in context_ci are ensured to be supported by the specified GPU.
+
+     * \param context_ci specifies extensions required to be supported. \return
+     * vk::Result::eSuccess if all extensions are supported.
+     */
     bool InitDevice(u32 device_index, const ContextCreateInfo& context_ci);
 
-    const vk::Device& Device() const { return device_; }
+    const vk::Device&  Device() const { return device_; }
+    vk::Instance       Instance() const { return instance_; }
+    vk::PhysicalDevice Gpu() const { return gpu_; }
+    vk::Queue          GetGctQueue() const { return queue_graphics_compute_transfer_.queue; }
+    u32 GetGctQueueFamilyIndex() const { return queue_graphics_compute_transfer_.family_index; }
 
-    std::vector<u32>                GetCompatibleDevices(const ContextCreateInfo& context_ci) const;
+    // Retrieves the set of GPUs that supports all extensions specified in the context_ci.
+    std::vector<u32> GetCompatibleDevices(const ContextCreateInfo& context_ci) const;
+
+    // Retrieves the set of GPUs connected to the host machine. An instance is implicitly required.
     std::vector<vk::PhysicalDevice> GetGpus() const
     {
         return instance_.enumeratePhysicalDevices(static_loader_);
     }
+    // Retrieves the set of GPU groups connected to the host machine. An instance in implicitly
+    // needed.
     std::vector<vk::PhysicalDeviceGroupProperties> GetGpuGroups() const
     {
         return instance_.enumeratePhysicalDeviceGroups();
@@ -254,6 +281,7 @@ class Context
         return gpu.enumerateDeviceExtensionProperties(nullptr, static_loader_);
     }
 
+    // Checks if the extensions required by context_ci are supported by the given GPU.
     bool HasMandatoryExtensions(vk::PhysicalDevice gpu, const ContextCreateInfo& context_ci,
                                 bool verbose) const;
 
@@ -262,18 +290,9 @@ class Context
     // Returns false if fails to set.
     bool SetGCTQueueWithPresent(vk::SurfaceKHR surface);
 
-    u32 GetQueueFamily(vk::QueueFlags flags_supported, vk::QueueFlags flags_disabled = {},
-                       vk::SurfaceKHR surface = nullptr);
-
     // Checks if the context has the optional extension activated.
     bool HasDeviceExtension(const char* name) const;
     bool HasInstanceExtension(const char* name) const;
-
-    vk::Instance       instance() const { return instance_; }
-    vk::Device         device() const { return device_; }
-    vk::PhysicalDevice gpu() const { return gpu_; }
-    vk::Queue          GetGctQueue() const { return queue_graphics_compute_transfer_.queue; }
-    u32 GetGctQueueFamilyIndex() const { return queue_graphics_compute_transfer_.family_index; }
 
   private:
     vk::Instance       instance_;
@@ -311,19 +330,28 @@ class Context
 
     void InitDebugUtils();
 
+    // Checks if all requested layers are available in the supported properties. If so, writes the
+    // names of all such layers into `used`.
     vk::Result FillFilterNameArray(std::vector<const char*>*                    used,
                                    const std::vector<vk::LayerProperties>&      properties,
                                    const std::vector<ContextCreateInfo::Entry>& requested);
 
+    // Selects supported properties from requested ones and returns them in `used`.
     vk::Result FillFilterNameArray(std::vector<const char*>*                    used,
                                    const std::vector<vk::ExtensionProperties>&  properties,
                                    const std::vector<ContextCreateInfo::Entry>& requested,
-                                   std::vector<void*>&                          feature_structs);
+                                   std::vector<void*>*                          feature_structs);
 
-    bool CheckEntryArray(const std::vector<vk::ExtensionProperties>&  properties,
+    // Checks if all requested extensions are available in given supported properties.
+    bool CheckEntryArray(const std::vector<vk::ExtensionProperties>&  supported_properties,
                          const std::vector<ContextCreateInfo::Entry>& requested,
                          bool                                         verbose) const;
 
+    /**
+     * \brief Writes all supported features and properties from a GPU into `info`.
+     * \param version_major, version_minor: Vulkan version being used.
+     * \return info: GPU info containing the supported features.
+     */
     static void InitGpuInfo(GpuInfo* info, vk::PhysicalDevice gpu, u32 version_major,
                             u32 version_minor);
 
