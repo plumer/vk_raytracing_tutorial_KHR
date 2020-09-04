@@ -152,8 +152,7 @@ class HelloVulkan : public vkpbr::AppBase
         kDsbMatrices,
         kDsbTextures
     };
-    // Binding indices for the ray tracing descriptor set.
-    enum RtDSBindings { kRtDsbAccelStruct = 0, kRtDsbOutputImage, kRtDsbPrimInfo };
+
 
     // #VKRay
     void                              initRayTracing();
@@ -176,16 +175,29 @@ class HelloVulkan : public vkpbr::AppBase
     };
 
 
-    vk::PhysicalDeviceRayTracingPropertiesKHR           m_rtProperties;
-    vkpbr::RaytracingBuilderKHR                         m_rtBuilder;
-    vkpbr::DescriptorSetBindings                        rt_DS_layout_bindings_;
-    vk::DescriptorPool                                  m_rtDescPool;
-    vk::DescriptorSetLayout                             m_rtDescSetLayout;
-    vk::DescriptorSet                                   m_rtDescSet;
+    vk::PhysicalDeviceRayTracingPropertiesKHR m_rtProperties;
+    vkpbr::RaytracingBuilderKHR               m_rtBuilder;
+
+    // Binding indices for the ray tracing descriptor set.
+    enum RtDSBindings { kRtDsbAccelStruct = 0, kRtDsbOutputImage, kRtDsbPrimInfo };
+    vkpbr::DescriptorSetBindings rt_DS_layout_bindings_;
+    vk::DescriptorPool           m_rtDescPool;
+    vk::DescriptorSetLayout      m_rtDescSetLayout;
+    vk::DescriptorSet            m_rtDescSet;
+
+    enum RtPipelineStages {
+        kRaygen = 0,
+        kMiss,
+        kShadowMiss,
+        kClosestHit,
+        //kClosestHit2,
+        kNumStages
+    };
     std::vector<vk::RayTracingShaderGroupCreateInfoKHR> m_rtShaderGroups;
     vk::PipelineLayout                                  m_rtPipelineLayout;
     vk::Pipeline                                        m_rtPipeline;
-    vkpbr::UniqueMemoryBuffer                           m_rtSBTBuffer;
+
+    vkpbr::UniqueMemoryBuffer m_rtSBTBuffer;
 
     struct GltfSceneData {
         vkpbr::UniqueMemoryBuffer vertex_buffer;

@@ -828,10 +828,10 @@ void HelloVulkan::BuildTextureImages(const vk::CommandBuffer& cmd_buffer,
 
     m_textures.reserve(gltf_model.images.size());
     for (size_t i = 0; i < gltf_model.images.size(); ++i) {
-        auto & gltf_image = gltf_model.images[i];
-        void *buffer = &gltf_image.image[0];
-        auto buffer_size = gltf_image.image.size();
-        auto   image_size  = vk::Extent2D(gltf_image.width, gltf_image.height);
+        auto& gltf_image  = gltf_model.images[i];
+        void* buffer      = &gltf_image.image[0];
+        auto  buffer_size = gltf_image.image.size();
+        auto  image_size  = vk::Extent2D(gltf_image.width, gltf_image.height);
 
         if (buffer_size == 0 || gltf_image.width <= 0 || gltf_image.height <= 0) {
             AddDefaultTexture();
@@ -949,23 +949,13 @@ void HelloVulkan::createBottomLevelAS()
 {
     // BLAS - Storing each primitive in a geometry
     std::vector<vkpbr::RaytracingBuilderKHR::Blas> all_blas;
-    //all_blas.reserve(m_objModel.size());
-    //for (const auto& obj : m_objModel) {
-    //    auto blas = objectToVkGeometryKHR(obj);
-    //    all_blas.emplace_back(blas);
-    //}
-    //{
-    //    auto blas = sphereToVkGeometryKHR();
-    //    all_blas.emplace_back(blas);
-    //}
-    //m_rtBuilder.buildBlas(all_blas, vk::BuildAccelerationStructureFlagBitsKHR::ePreferFastTrace);
 
     // Builds the blas from the glTF scene data.
     all_blas.clear();
     all_blas.reserve(gltf_scene_.m_primMeshes.size());
 
-        //all_blas.emplace_back(sphereToVkGeometryKHR());
-        //all_blas.emplace_back(PrimitiveToGeometryKHR(gltf_scene_.m_primMeshes[0]));
+    // all_blas.emplace_back(sphereToVkGeometryKHR());
+    // all_blas.emplace_back(PrimitiveToGeometryKHR(gltf_scene_.m_primMeshes[0]));
 
     for (const auto& mesh : gltf_scene_.m_primMeshes) {
         all_blas.emplace_back(PrimitiveToGeometryKHR(mesh));
@@ -977,27 +967,6 @@ void HelloVulkan::createTopLevelAS()
 {
 
     std::vector<vkpbr::RaytracingBuilderKHR::Instance> tlas_instances;
-    //tlas_instances.reserve(m_objInstance.size());
-    //for (int i = 0; i < cast_i32(m_objInstance.size()); ++i) {
-    //    vkpbr::RaytracingBuilderKHR::Instance instance;
-    //    memcpy(&instance.transform, &m_objInstance[i].transform, sizeof instance.transform);
-    //    instance.instanceId = i;
-    //    instance.blasId     = m_objInstance[i].objIndex;
-    //    instance.hitGroupId = 0;
-    //    instance.flags      = vk::GeometryInstanceFlagBitsKHR::eTriangleFacingCullDisable;
-    //    tlas_instances.push_back(instance);
-    //}
-    //{
-    //    vkpbr::RaytracingBuilderKHR::Instance sphere_instance;
-    //    memcpy(&sphere_instance.transform, &m_objInstance[0].transform,
-    //           sizeof sphere_instance.transform);
-    //    sphere_instance.instanceId = cast_u32(tlas_instances.size());
-    //    sphere_instance.blasId     = cast_u32(m_objModel.size());
-    //    sphere_instance.hitGroupId = 1;
-    //    sphere_instance.flags      = vk::GeometryInstanceFlagBitsKHR::eTriangleFacingCullDisable;
-    //    tlas_instances.emplace_back(sphere_instance);
-    //}
-
     // Builds the TLAS for the gltf scene data.
     tlas_instances.clear();
     tlas_instances.reserve(gltf_scene_.m_nodes.size());
@@ -1010,7 +979,7 @@ void HelloVulkan::createTopLevelAS()
         instance.hitGroupId = 0;  // Uses the same hit group for all objects.
         tlas_instances.emplace_back(instance);
     }
-     m_rtBuilder.buildTlas(tlas_instances,
+    m_rtBuilder.buildTlas(tlas_instances,
                           vk::BuildAccelerationStructureFlagBitsKHR::ePreferFastTrace);
 }
 
@@ -1040,10 +1009,15 @@ void HelloVulkan::createRtDescriptorSet()
     descASInfo.setPAccelerationStructures(&tlas);
     vk::DescriptorImageInfo imageInfo{
         {}, m_offscreenColor.descriptor.imageView, vk::ImageLayout::eGeneral};
+    vk::DescriptorBufferInfo prim_buffer_info{scene_data_.rt_prim_lookup_buffer.handle,
+                                              /*offset =*/0, VK_WHOLE_SIZE};
 
     std::vector<vk::WriteDescriptorSet> writes;
     writes.emplace_back(rt_DS_layout_bindings_.MakeWrite(m_rtDescSet, 0, &descASInfo));
     writes.emplace_back(rt_DS_layout_bindings_.MakeWrite(m_rtDescSet, 1, &imageInfo));
+    writes.emplace_back(
+        rt_DS_layout_bindings_.MakeWrite(m_rtDescSet, kRtDsbPrimInfo, &prim_buffer_info));
+
     device_.updateDescriptorSets(static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
 }
 
@@ -1081,6 +1055,10 @@ void HelloVulkan::createRtPipeline()
     vk::ShaderModule shadowmissSM =
         vkpbr::MakeShaderModule(device_,
                                 io::LoadBinaryFile("shaders/raytraceShadow.rmiss.spv", paths));
+    vk::ShaderModule chitSM =  // Hit Group0 - Closest Hit
+        vkpbr::MakeShaderModule(device_, io::LoadBinaryFile("shaders/raytrace.rchit.spv", paths));
+    vk::ShaderModule chit2SM =  // Hit Group1 - Closest Hit + Intersection (procedural)
+        vkpbr::MakeShaderModule(device_, io::LoadBinaryFile("shaders/raytrace2.rchit.spv", paths));
 
     std::vector<vk::PipelineShaderStageCreateInfo> stages;
 
@@ -1089,43 +1067,35 @@ void HelloVulkan::createRtPipeline()
                                                       VK_SHADER_UNUSED_KHR, VK_SHADER_UNUSED_KHR,
                                                       VK_SHADER_UNUSED_KHR, VK_SHADER_UNUSED_KHR);
     };
+
+    stages.resize(kNumStages);
+    stages[kRaygen]     = {{}, vk::ShaderStageFlagBits::eRaygenKHR, raygenSM, "main"};
+    stages[kMiss]       = {{}, vk::ShaderStageFlagBits::eMissKHR, missSM, "main"};
+    stages[kShadowMiss] = {{}, vk::ShaderStageFlagBits::eMissKHR, shadowmissSM, "main"};
+    stages[kClosestHit] = {{}, vk::ShaderStageFlagBits::eClosestHitKHR, chitSM, "main"};
+    // stages[kClosestHit2] = {{}, vk::ShaderStageFlagBits::eClosestHitKHR, chit2SM, "main"};
+
     // Raygen
-    stages.push_back({{}, vk::ShaderStageFlagBits::eRaygenKHR, raygenSM, "main"});
-    auto raygen_group = MakeEmptyShaderGroupCI().setGeneralShader(cast_u32(stages.size() - 1));
+    auto raygen_group = MakeEmptyShaderGroupCI().setGeneralShader(kRaygen);
     m_rtShaderGroups.push_back(raygen_group);
     // Miss
-    stages.push_back({{}, vk::ShaderStageFlagBits::eMissKHR, missSM, "main"});
-    auto miss_group = MakeEmptyShaderGroupCI().setGeneralShader(cast_u32(stages.size() - 1));
+    auto miss_group = MakeEmptyShaderGroupCI().setGeneralShader(kMiss);
     m_rtShaderGroups.push_back(miss_group);
     // Shadow Miss
-    stages.push_back({{}, vk::ShaderStageFlagBits::eMissKHR, shadowmissSM, "main"});
-    miss_group.setGeneralShader(cast_u32(stages.size() - 1));
+    miss_group.setGeneralShader(kShadowMiss);
     m_rtShaderGroups.push_back(miss_group);
 
-    // Hit Group0 - Closest Hit
-    vk::ShaderModule chitSM =
-        vkpbr::MakeShaderModule(device_, io::LoadBinaryFile("shaders/raytrace.rchit.spv", paths));
+    auto hit_group = MakeEmptyShaderGroupCI()
+                         .setType(vk::RayTracingShaderGroupTypeKHR::eTrianglesHitGroup)
+                         .setClosestHitShader(kClosestHit);
+    m_rtShaderGroups.push_back(hit_group);
+    // hit_group = MakeEmptyShaderGroupCI()
+    //                .setType(vk::RayTracingShaderGroupTypeKHR::eProceduralHitGroup)
+    //                .setClosestHitShader(kClosestHit2);
+    // m_rtShaderGroups.push_back(hit_group);
 
-    {
-        stages.push_back({{}, vk::ShaderStageFlagBits::eClosestHitKHR, chitSM, "main"});
-        auto hit_group = MakeEmptyShaderGroupCI()
-                             .setType(vk::RayTracingShaderGroupTypeKHR::eTrianglesHitGroup)
-                             .setClosestHitShader(static_cast<uint32_t>(stages.size() - 1));
-        m_rtShaderGroups.push_back(hit_group);
-    }
-
-    // Hit Group1 - Closest Hit + Intersection (procedural)
-    vk::ShaderModule chit2SM =
-        vkpbr::MakeShaderModule(device_, io::LoadBinaryFile("shaders/raytrace2.rchit.spv", paths));
-
-    {
-        stages.push_back({{}, vk::ShaderStageFlagBits::eClosestHitKHR, chit2SM, "main"});
-        auto hg = MakeEmptyShaderGroupCI()
-                      .setType(vk::RayTracingShaderGroupTypeKHR::eProceduralHitGroup)
-                      .setClosestHitShader(static_cast<uint32_t>(stages.size() - 1));
-        m_rtShaderGroups.push_back(hg);
-    }
-
+    // Creates the RT pipeline layout: push constants and descriptor sets.
+    // --------------------------------------------------------------------------------------------
     vk::PipelineLayoutCreateInfo pipelineLayoutCreateInfo;
 
     // Push constant: we want to be able to update constants used by the shaders
@@ -1148,8 +1118,8 @@ void HelloVulkan::createRtPipeline()
     rayPipelineInfo.setStageCount(static_cast<uint32_t>(stages.size()));  // Stages are shaders
     rayPipelineInfo.setPStages(stages.data());
 
-    rayPipelineInfo.setGroupCount(static_cast<uint32_t>(
-        m_rtShaderGroups.size()));  // 1-raygen, n-miss, n-(hit[+anyhit+intersect])
+    rayPipelineInfo.setGroupCount(cast_u32(m_rtShaderGroups.size()));  // 1-raygen, n-miss,
+                                                                       // n-(hit[+anyhit+intersect])
     rayPipelineInfo.setPGroups(m_rtShaderGroups.data());
 
     rayPipelineInfo.setMaxRecursionDepth(2);  // Ray depth
@@ -1169,10 +1139,8 @@ void HelloVulkan::createRtPipeline()
 //
 void HelloVulkan::createRtShaderBindingTable()
 {
-    auto groupCount = static_cast<uint32_t>(m_rtShaderGroups.size());  // 3 shaders: raygen, miss,
-                                                                       // chit
-    uint32_t groupHandleSize = m_rtProperties.shaderGroupHandleSize;   // Size of a program
-                                                                       // identifier
+    auto groupCount      = cast_u32(m_rtShaderGroups.size());     // 3 shaders: raygen, miss chit
+    u32  groupHandleSize = m_rtProperties.shaderGroupHandleSize;  // Size of a program identifier
 
     // Fetch all the shader handles used in the pipeline, so that they can be written in the SBT
     uint32_t sbtSize = groupCount * groupHandleSize;
