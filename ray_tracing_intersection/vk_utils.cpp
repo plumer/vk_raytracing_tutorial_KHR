@@ -107,7 +107,7 @@ void CommandPool::SubmitAndWait(vk::ArrayProxy<const vk::CommandBuffer> cmds, vk
         queue.submit(submit_info, /*fence =*/nullptr);
         queue.waitIdle();
     } catch (std::exception& e) {
-        LOG(FATAL) << "command buffer submit failed" << e.what();
+        LOG(FATAL) << "command buffer submit failed: " << e.what();
     }
 
     device_.freeCommandBuffers(cmd_pool_, cmds);
@@ -604,9 +604,12 @@ VkBool32 DebugMessengerCallback(VkDebugUtilsMessageSeverityFlagBitsEXT      msg_
     if (callback_data->objectCount > 0) {
         for (u32 object = 0; object < callback_data->objectCount; ++object) {
             std::string obj_type = vk::to_string(cb_data.pObjects[object].objectType);
-            LOG(INFO) << " Object[" << object << "] - Type " << obj_type << ", Value "
+            const char * obj_name = cb_data.pObjects[object].pObjectName;
+            if (!obj_name)
+                obj_name = "";
+            LOG(INFO) << " Object[" <</* int(object) <<*/ "] - Type " << obj_type << ", Value "
                       << (void*)cb_data.pObjects[object].objectHandle << ", Name \'"
-                      << cb_data.pObjects[object].pObjectName << '\'';
+                      << obj_name<< '\'';
         }
     }
     if (callback_data->cmdBufLabelCount > 0) {

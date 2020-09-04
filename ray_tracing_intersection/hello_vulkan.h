@@ -37,6 +37,8 @@
 // #VKRay
 #include "vk_raytrace.hpp"
 
+#include <nvh/gltfscene.hpp>
+
 //--------------------------------------------------------------------------------------------------
 // Simple rasterizer of OBJ objects
 // - Each OBJ loaded are stored in an `ObjModel` and referenced by a `ObjInstance`
@@ -53,11 +55,15 @@ class HelloVulkan : public vkpbr::AppBase
     void BuildDescriptorSetLayout();
     void BuildGraphicsPipeline();
     void LoadModel(const std::string& filename, glm::mat4 transform = glm::mat4(1));
+
+    // Reads a gltf file and writes the scene data to buffers.
+    void LoadGltfModel(const std::string& filename, glm::mat4 transform = glm::mat4(1.0f));
     void UpdateDescriptorSet();
     void BuildUniformBuffer();
     void BuildSceneDescriptionBuffer();
     void BuildTextureImages(const vk::CommandBuffer&        cmdBuf,
                             const std::vector<std::string>& textures);
+
     void UpdateUniformBuffer();
     void WindowResizeCallback(int /*w*/, int /*h*/) override;
     void destroyResources();
@@ -72,6 +78,7 @@ class HelloVulkan : public vkpbr::AppBase
         vkpbr::UniqueMemoryBuffer matColorBuffer;  // Device buffer of array of 'Wavefront material'
         vkpbr::UniqueMemoryBuffer matIndexBuffer;  // Device buffer of array of 'Wavefront material'
     };
+
 
     // Instance of the OBJ
     struct ObjInstance {
@@ -88,6 +95,7 @@ class HelloVulkan : public vkpbr::AppBase
         int       instanceId{0};  // To retrieve the transformation matrix
         float     lightIntensity{100.f};
         int       lightType{0};  // 0: point, 1: infinite
+        int       materialId = 0;
     };
     ObjPushConstant m_pushConstant;
 
@@ -136,27 +144,36 @@ class HelloVulkan : public vkpbr::AppBase
     // Binding indices for the regular descriptor set.
     enum DSBindings {
         kDsbCameraMatrices = 0,
-        kDsbMaterials,
-        kDsbSceneDesc,
-        kDsbTextures,
-        kDsbMaterialsIndex,
         kDsbVertices,
+        kDsbNormals,
+        kDsbTexcoords,
         kDsbIndices,
-        kDsbSpheres
+        kDsbMaterials,
+        kDsbMatrices,
+        kDsbTextures
     };
     // Binding indices for the ray tracing descriptor set.
-    enum RtDSBindings { kRtDsbAccelStruct = 0, kRtDsbOutputImage };
+    enum RtDSBindings { kRtDsbAccelStruct = 0, kRtDsbOutputImage, kRtDsbPrimInfo };
 
     // #VKRay
     void                              initRayTracing();
     vkpbr::RaytracingBuilderKHR::Blas objectToVkGeometryKHR(const ObjModel& model);
-    void                              createBottomLevelAS();
-    void                              createTopLevelAS();
-    void                              createRtDescriptorSet();
-    void                              updateRtDescriptorSet();
-    void                              createRtPipeline();
-    void                              createRtShaderBindingTable();
+    vkpbr::RaytracingBuilderKHR::Blas PrimitiveToGeometryKHR(const nvh::GltfPrimMesh& prim);
+
+    // Creates bottom level accel structure for each model in m_objModel and glTF scene.
+    void createBottomLevelAS();
+    void createTopLevelAS();
+    void createRtDescriptorSet();
+    void updateRtDescriptorSet();
+    void createRtPipeline();
+    void createRtShaderBindingTable();
     void raytrace(const vk::CommandBuffer& cmdBuf, const glm::vec4& clearColor);
+
+    struct RtPrimitiveLookup {
+        u32 index_offset   = 0;
+        u32 vertex_offset  = 0;
+        i32 material_index = 0;
+    };
 
 
     vk::PhysicalDeviceRayTracingPropertiesKHR           m_rtProperties;
@@ -169,6 +186,20 @@ class HelloVulkan : public vkpbr::AppBase
     vk::PipelineLayout                                  m_rtPipelineLayout;
     vk::Pipeline                                        m_rtPipeline;
     vkpbr::UniqueMemoryBuffer                           m_rtSBTBuffer;
+
+    struct GltfSceneData {
+        vkpbr::UniqueMemoryBuffer vertex_buffer;
+        vkpbr::UniqueMemoryBuffer index_buffer;
+        vkpbr::UniqueMemoryBuffer normal_buffer;
+        vkpbr::UniqueMemoryBuffer uv_buffer;
+        vkpbr::UniqueMemoryBuffer mtl_buffer;
+        vkpbr::UniqueMemoryBuffer matrix_buffer;
+        vkpbr::UniqueMemoryBuffer rt_prim_lookup_buffer;
+    } scene_data_;
+    nvh::GltfScene gltf_scene_;
+    // TODO: Reads a gltf model and loads all images as textures.
+    void BuildTextureImages(const vk::CommandBuffer& cmd_buffer, tinygltf::Model& gltf_model);
+
 
     struct RtPushConstant {
         glm::vec4 clearColor;

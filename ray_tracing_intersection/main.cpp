@@ -33,12 +33,15 @@
 #include <vulkan/vulkan.hpp>
 VULKAN_HPP_DEFAULT_DISPATCH_LOADER_DYNAMIC_STORAGE
 
+#include <tiny_gltf.h>
+
 #include "imgui.h"
 #include "imgui_impl_glfw.h"
 #include "imgui_impl_vk.h"
 
-#include "hello_vulkan.h"
+#include "nvh/gltfscene.hpp"
 
+#include "hello_vulkan.h"
 #include "io.h"
 #include "logging.h"
 
@@ -142,6 +145,7 @@ int main(int argc, char** argv)
     CHECK(!compatible_gpus.empty());
     CHECK(vk_context.InitDevice(compatible_gpus[0], context_ci));
 
+
     // Create example
     // --------------------------------------------------------------------------------------------
     HelloVulkan helloVk;
@@ -163,14 +167,15 @@ int main(int argc, char** argv)
 
     // Creation of the example
     //  helloVk.loadModel(io::FindFile("media/scenes/Medieval_building.obj", defaultSearchPaths));
-    helloVk.LoadModel(io::FindFile("media/scenes/plane.obj", defaultSearchPaths));
+    //helloVk.LoadModel(io::FindFile("media/scenes/plane.obj", defaultSearchPaths));
+    helloVk.LoadGltfModel(io::FindFile("scenes/cornellBox.gltf", defaultSearchPaths));
     helloVk.createSpheres();
 
     helloVk.createOffscreenRender();
     helloVk.BuildDescriptorSetLayout();
     helloVk.BuildGraphicsPipeline();
     helloVk.BuildUniformBuffer();
-    helloVk.BuildSceneDescriptionBuffer();
+    //helloVk.BuildSceneDescriptionBuffer();
     helloVk.UpdateDescriptorSet();
 
     // #VKRay
@@ -187,7 +192,7 @@ int main(int argc, char** argv)
 
 
     glm::vec4 clearColor   = glm::vec4(1, 1, 1, 1.00f);
-    bool      useRaytracer = true;
+    bool      useRaytracer = false;
 
 
     helloVk.SetupGlfwCallbacks();

@@ -185,7 +185,7 @@ UniqueMemoryBuffer UniqueMemoryAllocator::MakeBuffer(vk::DeviceSize          siz
                                                      vk::BufferUsageFlags    usage,
                                                      vk::MemoryPropertyFlags memory_usage) const
 {
-
+    CHECK_GT(size, 0);
     auto               buffer_ci = vk::BufferCreateInfo().setSize(size).setUsage(usage);
     UniqueMemoryBuffer result_buffer;
     result_buffer.handle = device_.createBuffer(buffer_ci);

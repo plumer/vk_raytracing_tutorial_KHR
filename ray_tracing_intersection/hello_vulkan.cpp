@@ -35,11 +35,14 @@ extern std::vector<std::string> defaultSearchPaths;
 
 #include "fileformats/stb_image.h"
 #include "hello_vulkan.h"
+#include "nvvk/commands_vk.hpp"
 #include "nvvk/pipeline_vk.hpp"
 #include "obj_loader.h"
 #define GLM_FORCE_RADIANS
 #include <glm/glm.hpp>
 #include <glm/gtx/transform.hpp>
+#include <nvh/gltfscene.hpp>
+#include <tiny_gltf.h>
 
 #include "io.h"
 #include "logging.h"
@@ -105,31 +108,21 @@ void HelloVulkan::BuildDescriptorSetLayout()
     uint32_t nbTxt = static_cast<uint32_t>(m_textures.size());
     uint32_t nbObj = static_cast<uint32_t>(m_objModel.size());
 
-    // Camera matrices (binding = 0)
-    DS_layout_bindings_.AddBinding(
+    auto& bind = DS_layout_bindings_;
+    bind.AddBinding(
         vkDS(kDsbCameraMatrices, vkDT::eUniformBuffer, 1, vkSS::eVertex | vkSS::eRaygenKHR));
-    // Materials (binding = 1)
-    DS_layout_bindings_.AddBinding(vkDS(kDsbMaterials, vkDT::eStorageBuffer, nbObj + 1,
-                                        vkSS::eVertex | vkSS::eFragment | vkSS::eClosestHitKHR));
-    // Scene description (binding = 2)
-    DS_layout_bindings_.AddBinding(  //
-        vkDS(kDsbSceneDesc, vkDT::eStorageBuffer, 1,
-             vkSS::eVertex | vkSS::eFragment | vkSS::eClosestHitKHR));
-    // Textures (binding = 3)
-    DS_layout_bindings_.AddBinding(vkDS(kDsbTextures, vkDT::eCombinedImageSampler, nbTxt,
-                                        vkSS::eFragment | vkSS::eClosestHitKHR));
-    // Materials Index (binding = 4)
-    DS_layout_bindings_.AddBinding(vkDS(kDsbMaterialsIndex, vkDT::eStorageBuffer, nbObj + 1,
-                                        vkSS::eFragment | vkSS::eClosestHitKHR));
-    // Storing vertices (binding = 5)
-    DS_layout_bindings_.AddBinding(  //
-        vkDS(kDsbVertices, vkDT::eStorageBuffer, nbObj, vkSS::eClosestHitKHR));
-    // Storing indices (binding = 6)
-    DS_layout_bindings_.AddBinding(  //
-        vkDS(kDsbIndices, vkDT::eStorageBuffer, nbObj, vkSS::eClosestHitKHR));
-    // Storing spheres (binding = 7)
-    DS_layout_bindings_.AddBinding(  //
-        vkDS(kDsbSpheres, vkDT::eStorageBuffer, 1, vkSS::eClosestHitKHR | vkSS::eIntersectionKHR));
+    bind.AddBinding(
+        vkDS(kDsbVertices, vkDT::eStorageBuffer, 1, vkSS::eClosestHitKHR | vkSS::eAnyHitKHR));
+    bind.AddBinding(
+        vkDS(kDsbIndices, vkDT::eStorageBuffer, 1, vkSS::eClosestHitKHR | vkSS::eAnyHitKHR));
+    bind.AddBinding(vkDS(kDsbNormals, vkDT::eStorageBuffer, 1, vkSS::eClosestHitKHR));
+    bind.AddBinding(vkDS(kDsbTexcoords, vkDT::eStorageBuffer, 1, vkSS::eClosestHitKHR));
+    bind.AddBinding(vkDS(kDsbMaterials, vkDT::eStorageBuffer, 1,
+                         vkSS::eFragment | vkSS::eClosestHitKHR | vkSS::eAnyHitKHR));
+    bind.AddBinding(vkDS(kDsbMatrices, vkDT::eStorageBuffer, 1,
+                         vkSS::eVertex | vkSS::eClosestHitKHR | vkSS::eAnyHitKHR));
+    bind.AddBinding(vkDS(kDsbTextures, vkDT::eCombinedImageSampler, cast_u32(m_textures.size()),
+                         vkSS::eFragment | vkSS::eClosestHitKHR | vkSS::eAnyHitKHR));
 
     m_descSetLayout = DS_layout_bindings_.MakeLayout(device_);
     m_descPool      = DS_layout_bindings_.MakePool(device_, 1);
@@ -147,34 +140,20 @@ void HelloVulkan::UpdateDescriptorSet()
 
     // Camera matrices and scene description
     vk::DescriptorBufferInfo dbiUnif{m_cameraMat.handle, 0, VK_WHOLE_SIZE};
+    vk::DescriptorBufferInfo vertex_desc{scene_data_.vertex_buffer.handle, 0, VK_WHOLE_SIZE};
+    vk::DescriptorBufferInfo index_desc{scene_data_.index_buffer.handle, 0, VK_WHOLE_SIZE};
+    vk::DescriptorBufferInfo normal_desc{scene_data_.normal_buffer.handle, 0, VK_WHOLE_SIZE};
+    vk::DescriptorBufferInfo uv_desc{scene_data_.uv_buffer.handle, 0, VK_WHOLE_SIZE};
+    vk::DescriptorBufferInfo material_desc(scene_data_.mtl_buffer.handle, 0, VK_WHOLE_SIZE);
+    vk::DescriptorBufferInfo matrix_desc{scene_data_.matrix_buffer.handle, 0, VK_WHOLE_SIZE};
+
     writes.emplace_back(DS_layout_bindings_.MakeWrite(m_descSet, kDsbCameraMatrices, &dbiUnif));
-    vk::DescriptorBufferInfo dbiSceneDesc{m_sceneDesc.handle, 0, VK_WHOLE_SIZE};
-    writes.emplace_back(DS_layout_bindings_.MakeWrite(m_descSet, kDsbSceneDesc, &dbiSceneDesc));
-
-    // All material buffers, 1 buffer per OBJ
-    std::vector<vk::DescriptorBufferInfo> dbiMat;
-    std::vector<vk::DescriptorBufferInfo> dbiMatIdx;
-    std::vector<vk::DescriptorBufferInfo> dbiVert;
-    std::vector<vk::DescriptorBufferInfo> dbiIdx;
-    for (auto& obj : m_objModel) {
-        dbiMat.emplace_back(obj.matColorBuffer.handle, 0, VK_WHOLE_SIZE);
-        dbiMatIdx.emplace_back(obj.matIndexBuffer.handle, 0, VK_WHOLE_SIZE);
-        dbiVert.emplace_back(obj.vertexBuffer.handle, 0, VK_WHOLE_SIZE);
-        dbiIdx.emplace_back(obj.indexBuffer.handle, 0, VK_WHOLE_SIZE);
-    }
-    dbiMat.emplace_back(m_spheresMatColorBuffer.handle, 0, VK_WHOLE_SIZE);
-    dbiMatIdx.emplace_back(m_spheresMatIndexBuffer.handle, 0, VK_WHOLE_SIZE);
-
-    writes.emplace_back(
-        DS_layout_bindings_.MakeWriteArray(m_descSet, kDsbMaterials, dbiMat.data()));
-    writes.emplace_back(
-        DS_layout_bindings_.MakeWriteArray(m_descSet, kDsbMaterialsIndex, dbiMatIdx.data()));
-    writes.emplace_back(
-        DS_layout_bindings_.MakeWriteArray(m_descSet, kDsbVertices, dbiVert.data()));
-    writes.emplace_back(DS_layout_bindings_.MakeWriteArray(m_descSet, kDsbIndices, dbiIdx.data()));
-
-    vk::DescriptorBufferInfo dbiSpheres{m_spheresBuffer.handle, 0, VK_WHOLE_SIZE};
-    writes.emplace_back(DS_layout_bindings_.MakeWrite(m_descSet, kDsbSpheres, &dbiSpheres));
+    writes.emplace_back(DS_layout_bindings_.MakeWrite(m_descSet, kDsbVertices, &vertex_desc));
+    writes.emplace_back(DS_layout_bindings_.MakeWrite(m_descSet, kDsbIndices, &index_desc));
+    writes.emplace_back(DS_layout_bindings_.MakeWrite(m_descSet, kDsbNormals, &normal_desc));
+    writes.emplace_back(DS_layout_bindings_.MakeWrite(m_descSet, kDsbTexcoords, &uv_desc));
+    writes.emplace_back(DS_layout_bindings_.MakeWrite(m_descSet, kDsbMaterials, &material_desc));
+    writes.emplace_back(DS_layout_bindings_.MakeWrite(m_descSet, kDsbMatrices, &matrix_desc));
 
     // All texture samplers
     std::vector<vk::DescriptorImageInfo> diit;
@@ -212,12 +191,15 @@ void HelloVulkan::BuildGraphicsPipeline()
     gpb.depthStencilState.depthTestEnable = true;
     gpb.addShader(io::LoadBinaryFile("shaders/vert_shader.vert.spv", paths), vkSS::eVertex);
     gpb.addShader(io::LoadBinaryFile("shaders/frag_shader.frag.spv", paths), vkSS::eFragment);
-    gpb.addBindingDescription({0, sizeof(VertexObj)});
+
+    // Describes how vertex data should be interpreted (as attributes).
+    gpb.addBindingDescriptions(
+        {{0, sizeof glm::vec3}, {1, sizeof glm::vec3}, {2, sizeof glm::vec2}});
     gpb.addAttributeDescriptions(
-        {{0, 0, vk::Format::eR32G32B32Sfloat, offsetof(VertexObj, pos)},
-         {1, 0, vk::Format::eR32G32B32Sfloat, offsetof(VertexObj, nrm)},
-         {2, 0, vk::Format::eR32G32B32Sfloat, offsetof(VertexObj, color)},
-         {3, 0, vk::Format::eR32G32Sfloat, offsetof(VertexObj, texCoord)}});
+        // loc, binding, format, offset
+        {{0, 0, vk::Format::eR32G32B32Sfloat, 0},
+         {1, 1, vk::Format::eR32G32B32Sfloat, 0},
+         {2, 2, vk::Format::eR32G32Sfloat, 0}});
 
     m_graphicsPipeline = gpb.createPipeline();
     m_debug.setObjectName(m_graphicsPipeline, "Graphics");
@@ -275,6 +257,59 @@ void HelloVulkan::LoadModel(const std::string& filename, glm::mat4 transform)
 
     m_objModel.emplace_back(model);
     m_objInstance.emplace_back(instance);
+}
+
+void HelloVulkan::LoadGltfModel(const std::string& filename, glm::mat4 transform)
+{
+    using vkBU = vk::BufferUsageFlagBits;
+    // Loads the glTF Scene.
+    // --------------------------------------------------------------------------------------------
+    tinygltf::Model    t_model;
+    tinygltf::TinyGLTF t_context;
+    std::string        warning, error;
+    if (!t_context.LoadASCIIFromFile(&t_model, &error, &warning, filename)) {
+        LOG(FATAL) << "Error while loading scene";
+    }
+    gltf_scene_.importMaterials(t_model);
+    gltf_scene_.importDrawableNodes(t_model,
+                                    nvh::GltfAttributes::Normal | nvh::GltfAttributes::Texcoord_0);
+
+    vkpbr::CommandPool cmd_pool(device_, graphics_queue_index_);
+    auto               cmd_buffer = cmd_pool.MakeCmdBuffer();
+
+    scene_data_.vertex_buffer = allocator_.MakeBuffer(cmd_buffer, gltf_scene_.m_positions,
+                                                      vkBU::eVertexBuffer | vkBU::eStorageBuffer
+                                                          | vkBU::eShaderDeviceAddress);
+    scene_data_.index_buffer  = allocator_.MakeBuffer(cmd_buffer, gltf_scene_.m_indices,
+                                                     vkBU::eIndexBuffer | vkBU::eStorageBuffer
+                                                         | vkBU::eShaderDeviceAddress);
+    scene_data_.normal_buffer = allocator_.MakeBuffer(cmd_buffer, gltf_scene_.m_normals,
+                                                      vkBU::eVertexBuffer | vkBU::eStorageBuffer);
+
+    scene_data_.uv_buffer = allocator_.MakeBuffer(cmd_buffer, gltf_scene_.m_texcoords0,
+                                                  vkBU::eVertexBuffer | vkBU::eStorageBuffer);
+    scene_data_.mtl_buffer =
+        allocator_.MakeBuffer(cmd_buffer, gltf_scene_.m_materials, vkBU::eStorageBuffer);
+
+    std::vector<nvmath::mat4f> node_matrices;
+    for (const auto& node : gltf_scene_.m_nodes) {
+        node_matrices.emplace_back(node.worldMatrix.mat_array);
+    }
+    scene_data_.matrix_buffer =
+        allocator_.MakeBuffer(cmd_buffer, node_matrices, vkBU::eStorageBuffer);
+
+    // Prepares data for finding primitive mesh information in the closest-hit shader.
+    std::vector<RtPrimitiveLookup> prim_lookup;
+    for (auto& mesh : gltf_scene_.m_primMeshes) {
+        prim_lookup.push_back({mesh.firstIndex, mesh.vertexOffset, mesh.materialIndex});
+    }
+    scene_data_.rt_prim_lookup_buffer =
+        allocator_.MakeBuffer(cmd_buffer, prim_lookup, vkBU::eStorageBuffer);
+
+    // Creates all textures in the scene.
+    BuildTextureImages(cmd_buffer, t_model);
+    cmd_pool.SubmitAndWait(cmd_buffer);
+    allocator_.ReleaseAllStagingBuffers();
 }
 
 //--------------------------------------------------------------------------------------------------
@@ -415,6 +450,15 @@ void HelloVulkan::destroyResources()
         t.DestroyFrom(device_);
     }
 
+    // Destroys resource from the scene data.
+    scene_data_.vertex_buffer.DestroyFrom(device_);
+    scene_data_.index_buffer.DestroyFrom(device_);
+    scene_data_.normal_buffer.DestroyFrom(device_);
+    scene_data_.uv_buffer.DestroyFrom(device_);
+    scene_data_.mtl_buffer.DestroyFrom(device_);
+    scene_data_.matrix_buffer.DestroyFrom(device_);
+    scene_data_.rt_prim_lookup_buffer.DestroyFrom(device_);
+
     //#Post
     device_.destroy(m_postPipeline);
     device_.destroy(m_postPipelineLayout);
@@ -458,16 +502,36 @@ void HelloVulkan::rasterize(const vk::CommandBuffer& cmdBuf)
     // Drawing all triangles
     cmdBuf.bindPipeline(vkPBP::eGraphics, m_graphicsPipeline);
     cmdBuf.bindDescriptorSets(vkPBP::eGraphics, m_pipelineLayout, 0, {m_descSet}, {});
-    for (int i = 0; i < m_objInstance.size(); ++i) {
-        auto& inst                = m_objInstance[i];
-        auto& model               = m_objModel[inst.objIndex];
-        m_pushConstant.instanceId = i;  // Telling which instance is drawn
-        cmdBuf.pushConstants<ObjPushConstant>(m_pipelineLayout, vkSS::eVertex | vkSS::eFragment, 0,
-                                              m_pushConstant);
+    if constexpr (false) {
+        for (int i = 0; i < m_objInstance.size(); ++i) {
+            auto& inst                = m_objInstance[i];
+            auto& model               = m_objModel[inst.objIndex];
+            m_pushConstant.instanceId = i;  // Telling which instance is drawn
+            cmdBuf.pushConstants<ObjPushConstant>(m_pipelineLayout, vkSS::eVertex | vkSS::eFragment,
+                                                  0, m_pushConstant);
 
-        cmdBuf.bindVertexBuffers(0, {model.vertexBuffer.handle}, {offset});
-        cmdBuf.bindIndexBuffer(model.indexBuffer.handle, 0, vk::IndexType::eUint32);
-        cmdBuf.drawIndexed(model.nbIndices, 1, 0, 0, 0);
+            cmdBuf.bindVertexBuffers(0, {model.vertexBuffer.handle}, {offset});
+            cmdBuf.bindIndexBuffer(model.indexBuffer.handle, 0, vk::IndexType::eUint32);
+            cmdBuf.drawIndexed(model.nbIndices, 1, 0, 0, 0);
+        }
+    } else {
+        std::vector<vk::Buffer> vertex_buffers = {scene_data_.vertex_buffer.handle,
+                                                  scene_data_.normal_buffer.handle,
+                                                  scene_data_.uv_buffer.handle};
+        cmdBuf.bindVertexBuffers(/*firstBinding =*/0, vertex_buffers, /*offsets=*/{0, 0, 0});
+        cmdBuf.bindIndexBuffer(scene_data_.index_buffer.handle, /*offset=*/0,
+                               vk::IndexType::eUint32);
+        for (size_t node_i = 0; node_i < gltf_scene_.m_nodes.size(); ++node_i) {
+            const auto& node      = gltf_scene_.m_nodes[node_i];
+            const auto& primitive = gltf_scene_.m_primMeshes[node.primMesh];
+
+            m_pushConstant.instanceId = node_i;
+            m_pushConstant.materialId = primitive.materialIndex;
+            cmdBuf.pushConstants<ObjPushConstant>(m_pipelineLayout, vkSS::eVertex | vkSS::eFragment,
+                                                  /*offset=*/0, m_pushConstant);
+            cmdBuf.drawIndexed(primitive.indexCount, /*instanceCount=*/1, primitive.firstIndex,
+                               primitive.vertexOffset, /*firstInstance=*/0);
+        }
     }
     m_debug.endLabel(cmdBuf);
 }
@@ -699,6 +763,89 @@ vkpbr::RaytracingBuilderKHR::Blas HelloVulkan::objectToVkGeometryKHR(const ObjMo
     return blas;
 }
 
+vkpbr::RaytracingBuilderKHR::Blas HelloVulkan::PrimitiveToGeometryKHR(const nvh::GltfPrimMesh& prim)
+{
+    auto as_create_geometry = vk::AccelerationStructureCreateGeometryTypeInfoKHR()
+                                  .setGeometryType(vk::GeometryTypeKHR::eTriangles)
+                                  .setIndexType(vk::IndexType::eUint32)
+                                  .setVertexFormat(vk::Format::eR32G32B32Sfloat)
+                                  .setMaxPrimitiveCount(prim.indexCount / 3)
+                                  .setMaxVertexCount(prim.vertexCount)
+                                  .setAllowsTransforms(VK_FALSE);  // No adding transforms.
+
+    auto vertex_addr = device_.getBufferAddress({scene_data_.vertex_buffer.handle});
+    auto index_addr  = device_.getBufferAddress({scene_data_.index_buffer.handle});
+
+    auto triangles = vk::AccelerationStructureGeometryTrianglesDataKHR()
+                         .setVertexFormat(as_create_geometry.vertexFormat)
+                         .setVertexData(vertex_addr)
+                         .setVertexStride(sizeof(nvmath::vec3f))
+                         .setIndexType(as_create_geometry.indexType)
+                         .setIndexData(index_addr);
+
+    auto as_geometry = vk::AccelerationStructureGeometryKHR()
+                           .setGeometryType(as_create_geometry.geometryType)
+                           .setFlags(vk::GeometryFlagBitsKHR::eNoDuplicateAnyHitInvocation);
+    as_geometry.geometry.setTriangles(triangles);
+
+    auto offset = vk::AccelerationStructureBuildOffsetInfoKHR()
+                      .setFirstVertex(prim.vertexOffset)
+                      .setPrimitiveCount(prim.indexCount / 3)
+                      .setPrimitiveOffset(prim.firstIndex * sizeof(u32))
+                      .setTransformOffset(0);
+
+    vkpbr::RaytracingBuilderKHR::Blas blas;
+    blas.asGeometry.emplace_back(as_geometry);
+    blas.asCreateGeometryInfo.emplace_back(as_create_geometry);
+    blas.asBuildOffsetInfo.emplace_back(offset);
+    return blas;
+}
+
+void HelloVulkan::BuildTextureImages(const vk::CommandBuffer& cmd_buffer,
+                                     tinygltf::Model&         gltf_model)
+{
+    using vkIU = vk::ImageUsageFlagBits;
+
+    auto sampler_ci = vk::SamplerCreateInfo({}, vk::Filter::eLinear, vk::Filter::eLinear,
+                                            vk::SamplerMipmapMode::eLinear)
+                          .setMaxLod(FLT_MAX);
+    auto format = vk::Format::eR8G8B8A8Srgb;
+
+    auto AddDefaultTexture = [cmd_buffer, this]() {
+        // Makes dummy image(1, 1), needed as we cannot have an empty array.
+        u8   white[4] = {255, 255, 255, 255};
+        auto image =
+            allocator_.MakeImage(cmd_buffer, 4, white, vkpbr::MakeImage2DCreateInfo({1, 1}));
+        auto texture =
+            allocator_.MakeTexture(image, vkpbr::MakeImage2DViewCreateInfo(image.handle), {});
+        m_textures.emplace_back(std::move(texture));
+    };
+
+    if (gltf_model.images.empty()) {
+        AddDefaultTexture();
+        return;
+    }
+
+    m_textures.reserve(gltf_model.images.size());
+    for (size_t i = 0; i < gltf_model.images.size(); ++i) {
+        auto & gltf_image = gltf_model.images[i];
+        void *buffer = &gltf_image.image[0];
+        auto buffer_size = gltf_image.image.size();
+        auto   image_size  = vk::Extent2D(gltf_image.width, gltf_image.height);
+
+        if (buffer_size == 0 || gltf_image.width <= 0 || gltf_image.height <= 0) {
+            AddDefaultTexture();
+            continue;
+        }
+        auto image_ci = vkpbr::MakeImage2DCreateInfo(image_size, format, vkIU::eSampled);
+        vkpbr::UniqueMemoryImage image =
+            allocator_.MakeImage(cmd_buffer, buffer_size, buffer, image_ci);
+        vkpbr::CmdGenerateMipmaps(cmd_buffer, image.handle, format, image_size, image_ci.mipLevels);
+        auto image_view_ci = vkpbr::MakeImageViewCreateInfo(image.handle, image_ci);
+        m_textures.emplace_back(allocator_.MakeTexture(image, image_view_ci, sampler_ci));
+    }
+}
+
 //--------------------------------------------------------------------------------------------------
 // Returning the ray tracing geometry used for the BLAS, containing all spheres
 //
@@ -802,14 +949,26 @@ void HelloVulkan::createBottomLevelAS()
 {
     // BLAS - Storing each primitive in a geometry
     std::vector<vkpbr::RaytracingBuilderKHR::Blas> all_blas;
-    all_blas.reserve(m_objModel.size());
-    for (const auto& obj : m_objModel) {
-        auto blas = objectToVkGeometryKHR(obj);
-        all_blas.emplace_back(blas);
-    }
-    {
-        auto blas = sphereToVkGeometryKHR();
-        all_blas.emplace_back(blas);
+    //all_blas.reserve(m_objModel.size());
+    //for (const auto& obj : m_objModel) {
+    //    auto blas = objectToVkGeometryKHR(obj);
+    //    all_blas.emplace_back(blas);
+    //}
+    //{
+    //    auto blas = sphereToVkGeometryKHR();
+    //    all_blas.emplace_back(blas);
+    //}
+    //m_rtBuilder.buildBlas(all_blas, vk::BuildAccelerationStructureFlagBitsKHR::ePreferFastTrace);
+
+    // Builds the blas from the glTF scene data.
+    all_blas.clear();
+    all_blas.reserve(gltf_scene_.m_primMeshes.size());
+
+        //all_blas.emplace_back(sphereToVkGeometryKHR());
+        //all_blas.emplace_back(PrimitiveToGeometryKHR(gltf_scene_.m_primMeshes[0]));
+
+    for (const auto& mesh : gltf_scene_.m_primMeshes) {
+        all_blas.emplace_back(PrimitiveToGeometryKHR(mesh));
     }
     m_rtBuilder.buildBlas(all_blas, vk::BuildAccelerationStructureFlagBitsKHR::ePreferFastTrace);
 }
@@ -818,27 +977,40 @@ void HelloVulkan::createTopLevelAS()
 {
 
     std::vector<vkpbr::RaytracingBuilderKHR::Instance> tlas_instances;
-    tlas_instances.reserve(m_objInstance.size());
-    for (int i = 0; i < cast_i32(m_objInstance.size()); ++i) {
+    //tlas_instances.reserve(m_objInstance.size());
+    //for (int i = 0; i < cast_i32(m_objInstance.size()); ++i) {
+    //    vkpbr::RaytracingBuilderKHR::Instance instance;
+    //    memcpy(&instance.transform, &m_objInstance[i].transform, sizeof instance.transform);
+    //    instance.instanceId = i;
+    //    instance.blasId     = m_objInstance[i].objIndex;
+    //    instance.hitGroupId = 0;
+    //    instance.flags      = vk::GeometryInstanceFlagBitsKHR::eTriangleFacingCullDisable;
+    //    tlas_instances.push_back(instance);
+    //}
+    //{
+    //    vkpbr::RaytracingBuilderKHR::Instance sphere_instance;
+    //    memcpy(&sphere_instance.transform, &m_objInstance[0].transform,
+    //           sizeof sphere_instance.transform);
+    //    sphere_instance.instanceId = cast_u32(tlas_instances.size());
+    //    sphere_instance.blasId     = cast_u32(m_objModel.size());
+    //    sphere_instance.hitGroupId = 1;
+    //    sphere_instance.flags      = vk::GeometryInstanceFlagBitsKHR::eTriangleFacingCullDisable;
+    //    tlas_instances.emplace_back(sphere_instance);
+    //}
+
+    // Builds the TLAS for the gltf scene data.
+    tlas_instances.clear();
+    tlas_instances.reserve(gltf_scene_.m_nodes.size());
+    for (const auto& node : gltf_scene_.m_nodes) {
         vkpbr::RaytracingBuilderKHR::Instance instance;
-        memcpy(&instance.transform, &m_objInstance[i].transform, sizeof instance.transform);
-        instance.instanceId = i;
-        instance.blasId     = m_objInstance[i].objIndex;
-        instance.hitGroupId = 0;
+        memcpy(&instance.transform, &node.worldMatrix, sizeof instance.transform);
+        instance.instanceId = node.primMesh;
+        instance.blasId     = node.primMesh;
         instance.flags      = vk::GeometryInstanceFlagBitsKHR::eTriangleFacingCullDisable;
-        tlas_instances.push_back(instance);
+        instance.hitGroupId = 0;  // Uses the same hit group for all objects.
+        tlas_instances.emplace_back(instance);
     }
-    {
-        vkpbr::RaytracingBuilderKHR::Instance sphere_instance;
-        memcpy(&sphere_instance.transform, &m_objInstance[0].transform,
-               sizeof sphere_instance.transform);
-        sphere_instance.instanceId = cast_u32(tlas_instances.size());
-        sphere_instance.blasId     = cast_u32(m_objModel.size());
-        sphere_instance.hitGroupId = 1;
-        sphere_instance.flags      = vk::GeometryInstanceFlagBitsKHR::eTriangleFacingCullDisable;
-        tlas_instances.emplace_back(sphere_instance);
-    }
-    m_rtBuilder.buildTlas(tlas_instances,
+     m_rtBuilder.buildTlas(tlas_instances,
                           vk::BuildAccelerationStructureFlagBitsKHR::ePreferFastTrace);
 }
 
@@ -855,6 +1027,8 @@ void HelloVulkan::createRtDescriptorSet()
                                              vkSS::eRaygenKHR | vkSS::eClosestHitKHR));  // TLAS
     rt_DS_layout_bindings_.AddBinding(
         vkDSLB(kRtDsbOutputImage, vkDT::eStorageImage, 1, vkSS::eRaygenKHR));  // Output image
+    rt_DS_layout_bindings_.AddBinding(
+        vkDSLB(kRtDsbPrimInfo, vkDT::eStorageBuffer, 1, vkSS::eClosestHitKHR | vkSS::eAnyHitKHR));
 
     m_rtDescPool      = rt_DS_layout_bindings_.MakePool(device_);
     m_rtDescSetLayout = rt_DS_layout_bindings_.MakeLayout(device_);
@@ -944,15 +1118,11 @@ void HelloVulkan::createRtPipeline()
     vk::ShaderModule chit2SM =
         vkpbr::MakeShaderModule(device_, io::LoadBinaryFile("shaders/raytrace2.rchit.spv", paths));
 
-    vk::ShaderModule rintSM =
-        vkpbr::MakeShaderModule(device_, io::LoadBinaryFile("shaders/raytrace.rint.spv", paths));
     {
         stages.push_back({{}, vk::ShaderStageFlagBits::eClosestHitKHR, chit2SM, "main"});
         auto hg = MakeEmptyShaderGroupCI()
                       .setType(vk::RayTracingShaderGroupTypeKHR::eProceduralHitGroup)
                       .setClosestHitShader(static_cast<uint32_t>(stages.size() - 1));
-        stages.push_back({{}, vk::ShaderStageFlagBits::eIntersectionKHR, rintSM, "main"});
-        hg.setIntersectionShader(static_cast<uint32_t>(stages.size() - 1));
         m_rtShaderGroups.push_back(hg);
     }
 
@@ -986,7 +1156,7 @@ void HelloVulkan::createRtPipeline()
     rayPipelineInfo.setLayout(m_rtPipelineLayout);
     m_rtPipeline = device_.createRayTracingPipelineKHR({}, rayPipelineInfo).value;
 
-    for (auto& shader_module : {raygenSM, missSM, shadowmissSM, chitSM, chit2SM, rintSM}) {
+    for (auto& shader_module : {raygenSM, missSM, shadowmissSM, chitSM, chit2SM}) {
         device_.destroy(shader_module);
     }
 }
