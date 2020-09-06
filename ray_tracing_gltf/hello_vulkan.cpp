@@ -259,6 +259,66 @@ void HelloVulkan::LoadModel(const std::string& filename, glm::mat4 transform)
     m_objInstance.emplace_back(instance);
 }
 
+std::string MaterialSummary(const nvh::GltfMaterial& mtl)
+{
+    auto ColorName = [](nvmath::vec4 color) {
+        float       brightness = std::max(std::max(color[0], color[1]), color[2]);
+        std::string brightness_str;
+        if (brightness < 0.01) {
+            brightness_str = "black";
+            return brightness_str;
+        } else if (brightness < 0.33) {
+            brightness_str = "dark";
+        } else if (brightness < 0.67) {
+            brightness_str = "";
+        } else {
+            brightness_str = "bright";
+        }
+        color /= brightness;
+        int code = 0;
+        code |= (color[0] > 0.5 ? 1 : 0);
+        code |= (color[1] > 0.5 ? 2 : 0);
+        code |= (color[2] > 0.5 ? 4 : 0);
+        const char* kHues[] = {"gray", "red",     "green", "yellow",
+                               "blue", "magenta", "cyan",  "white"};
+        std::string hue     = "gray";
+        if (brightness > 0.9999 && code == 7) {
+            hue = "white";
+            brightness_str = "";
+        } else if (code != 0) {
+            hue = kHues[code];
+        }
+        return brightness_str + " " + hue;
+    };
+
+    std::ostringstream description;
+    if (mtl.shadingModel == 0) {
+        // metallic-roughness
+        description << "pbrBaseColor = " << (mtl.pbrBaseColorTexture >= 0 ? "Textured " : "Solid ")
+                    << ColorName(mtl.pbrBaseColorFactor) << ", ";
+        description << (mtl.pbrMetallicFactor < 0.5 ? "highly" : "slightly") << " metallic, ";
+        description << (mtl.pbrRoughnessFactor < 0.5 ? "highly" : "slightly") << " rough, ";
+    } else {
+        description << "diffuse = " << (mtl.khrDiffuseTexture >= 0 ? "Textured" : "Solid ")
+                    << ColorName(mtl.khrDiffuseFactor) << ", ";
+        description << "specular/glossy = " << (mtl.khrSpecularGlossinessTexture >= 0 ? "Textured " : "Solid")
+                    << ColorName(mtl.khrSpecularFactor);
+    }
+
+    // Emissivity
+    description << "Emission: " << (mtl.emissiveTexture >= 0 ? "Textured " : "Solid ")
+                << ColorName(mtl.emissiveFactor) << ", ";
+    if (mtl.alphaMode != 0)
+        description << "alpha = " << mtl.alphaCutoff << ", ";
+    if (mtl.doubleSided)
+        description << "double sided, ";
+    if (mtl.normalTexture >= 0)
+        description << "normal textured with scale = " << mtl.normalTextureScale << ", ";
+    if (mtl.occlusionTexture >= 0)
+        description << "occlusion textured with scale = " << mtl.occlusionTextureStrength;
+    return description.str();
+}
+
 void HelloVulkan::LoadGltfModel(const std::string& filename, glm::mat4 transform)
 {
     using vkBU = vk::BufferUsageFlagBits;
@@ -273,6 +333,12 @@ void HelloVulkan::LoadGltfModel(const std::string& filename, glm::mat4 transform
     gltf_scene_.importMaterials(t_model);
     gltf_scene_.importDrawableNodes(t_model,
                                     nvh::GltfAttributes::Normal | nvh::GltfAttributes::Texcoord_0);
+
+    LOG(INFO) << gltf_scene_.m_materials.size() << " material(s):";
+    for (const auto& mtl : gltf_scene_.m_materials) {
+        std::cout << " - " << MaterialSummary(mtl) << '\n';
+    }
+    putchar('\n');
 
     vkpbr::CommandPool cmd_pool(device_, graphics_queue_index_);
     auto               cmd_buffer = cmd_pool.MakeCmdBuffer();
@@ -973,7 +1039,7 @@ void HelloVulkan::createTopLevelAS()
     for (const auto& node : gltf_scene_.m_nodes) {
         vkpbr::RaytracingBuilderKHR::Instance instance;
         memcpy(&instance.transform, &node.worldMatrix, sizeof instance.transform);
-        instance.instanceId = node.primMesh;
+        instance.instanceId = node.primMesh;    // glInstanceCustomIndexEXT
         instance.blasId     = node.primMesh;
         instance.flags      = vk::GeometryInstanceFlagBitsKHR::eTriangleFacingCullDisable;
         instance.hitGroupId = 0;  // Uses the same hit group for all objects.

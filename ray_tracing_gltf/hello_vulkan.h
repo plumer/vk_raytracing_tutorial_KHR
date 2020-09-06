@@ -218,6 +218,8 @@ class HelloVulkan : public vkpbr::AppBase
         glm::vec3 lightPosition;
         float     lightIntensity = 0;
         int       lightType      = 0;
+        int       selected_mtl_index = 0;
+        glm::vec3 selected_mtl_color{0.1f, 0.1f, 0.1f};
     } m_rtPushConstants;
 
 

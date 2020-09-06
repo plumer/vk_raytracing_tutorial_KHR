@@ -223,8 +223,8 @@ int main(int argc, char** argv)
                 glm::vec3                      up(item == 0, item == 1, item == 2);
                 camera_navigator->SetLookAt(c.eye, c.center, up);
             }
-            ImGui::SliderFloat3("Light Position", &helloVk.m_pushConstant.lightPosition.x, -20.f,
-                                20.f);
+            ImGui::SliderFloat3("Light Position", &helloVk.m_pushConstant.lightPosition.x, -5.f,
+                                5.f);
             ImGui::SliderFloat("Light Intensity", &helloVk.m_pushConstant.lightIntensity, 0.f,
                                100.f);
             ImGui::RadioButton("Point", &helloVk.m_pushConstant.lightType, 0);
@@ -236,6 +236,8 @@ int main(int argc, char** argv)
                                             glm::vec3(0, 1, 0), true);
                 camera_navigator->SetMode(vkpbr::CameraNavigator::Modes::kExamine);
             }
+            ImGui::SliderInt("Mtl Index", &helloVk.m_rtPushConstants.selected_mtl_index, -1, 10);
+            ImGui::ColorEdit3("Mtl color", &helloVk.m_rtPushConstants.selected_mtl_color.x);
 
             ImGui::Text("Application average %.3f ms/frame (%.1f FPS)",
                         1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
