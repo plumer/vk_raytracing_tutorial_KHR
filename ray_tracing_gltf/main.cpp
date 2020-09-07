@@ -65,7 +65,7 @@ void renderUI(HelloVulkan& helloVk) {}
 //////////////////////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////////
 static int const SAMPLE_WIDTH  = 1280;
-static int const SAMPLE_HEIGHT = 720;
+static int const SAMPLE_HEIGHT = 800;
 
 //--------------------------------------------------------------------------------------------------
 // Application Entry
@@ -243,6 +243,9 @@ int main(int argc, char** argv)
             ImGui::Text("Application average %.3f ms/frame (%.1f FPS)",
                         1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
             ImGui::Text("# of frames accumulated: %d", helloVk.m_rtPushConstants.frame);
+            if (ImGui::Button("Write framebuffer to image")) {
+                helloVk.WriteFramebuffer("fb.jpg");
+            }
             ImGui::Render();
         }
 

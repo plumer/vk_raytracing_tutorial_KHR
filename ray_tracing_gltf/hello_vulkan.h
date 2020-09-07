@@ -153,6 +153,7 @@ class HelloVulkan : public vkpbr::AppBase
         kDsbTextures
     };
 
+    void WriteFramebuffer(const std::string &file_name);
 
     // #VKRay
     void                              initRayTracing();

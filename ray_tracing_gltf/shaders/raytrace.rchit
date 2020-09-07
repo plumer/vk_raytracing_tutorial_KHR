@@ -55,19 +55,6 @@ vec2 GetTexCoord(uint index)
     return vec2(ds_texcoord0[2 * index + 0], ds_texcoord0[2 * index + 1]);
 }
 
-// Makes a vector perpendicular to v, and is the same length as v.
-vec3 MakePerpendicularVector(vec3 v)
-{
-    vec3 t       = vec3(0, 0, 0);
-    int  min_dim = 0;
-    if (v[min_dim] > v.y)
-        min_dim = 1;
-    if (v[min_dim] > v.z)
-        min_dim = 2;
-    t[min_dim] = 1;
-    return cross(v, t);
-}
-
 void main()
 {
     // Retrieves the primitive mesh buffer information.

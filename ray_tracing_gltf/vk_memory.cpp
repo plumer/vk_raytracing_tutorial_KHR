@@ -31,7 +31,7 @@ UniqueMemoryImage UniqueMemoryAllocator::MakeImage(const vk::ImageCreateInfo& im
 
     image_requirements_info.image = result.handle;
     memory_requirements.pNext     = &dedicated_requirements;
-    memory_requirements           = device_.getImageMemoryRequirements2(image_requirements_info);
+    device_.getImageMemoryRequirements2(&image_requirements_info, &memory_requirements);
 
     // Allocates memory.
     auto memory_alloc_info =

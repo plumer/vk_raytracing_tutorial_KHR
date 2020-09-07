@@ -34,6 +34,7 @@ extern std::vector<std::string> defaultSearchPaths;
 #include <random>
 
 #include "fileformats/stb_image.h"
+#include "fileformats/stb_image_write.h"
 #include "hello_vulkan.h"
 #include "nvvk/commands_vk.hpp"
 #include "nvvk/pipeline_vk.hpp"
@@ -283,7 +284,7 @@ std::string MaterialSummary(const nvh::GltfMaterial& mtl)
                                "blue", "magenta", "cyan",  "white"};
         std::string hue     = "gray";
         if (brightness > 0.9999 && code == 7) {
-            hue = "white";
+            hue            = "white";
             brightness_str = "";
         } else if (code != 0) {
             hue = kHues[code];
@@ -301,7 +302,8 @@ std::string MaterialSummary(const nvh::GltfMaterial& mtl)
     } else {
         description << "diffuse = " << (mtl.khrDiffuseTexture >= 0 ? "Textured" : "Solid ")
                     << ColorName(mtl.khrDiffuseFactor) << ", ";
-        description << "specular/glossy = " << (mtl.khrSpecularGlossinessTexture >= 0 ? "Textured " : "Solid")
+        description << "specular/glossy = "
+                    << (mtl.khrSpecularGlossinessTexture >= 0 ? "Textured " : "Solid")
                     << ColorName(mtl.khrSpecularFactor);
     }
 
@@ -775,6 +777,64 @@ void HelloVulkan::drawPost(vk::CommandBuffer cmdBuf)
 //////////////////////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////////
 
+void HelloVulkan::WriteFramebuffer(const std::string& file_name)
+{
+    auto subresource_range = vk::ImageSubresourceRange()
+                                 .setAspectMask(vk::ImageAspectFlagBits::eColor)
+                                 .setBaseArrayLayer(0)
+                                 .setBaseMipLevel(0)
+                                 .setLayerCount(1)
+                                 .setLevelCount(1);
+
+    vkpbr::CommandPool cmd_pool(device_, graphics_queue_index_);
+    auto               cmd_buffer = cmd_pool.MakeCmdBuffer();
+    vkpbr::CmdBarrierImageLayout(cmd_buffer, m_offscreenColor.handle, vk::ImageLayout::eGeneral,
+                                 vk::ImageLayout::eTransferSrcOptimal, subresource_range);
+
+    vk::MemoryRequirements2          memory_requirements;
+    vk::MemoryDedicatedRequirements  dedicated_requirements;
+    vk::ImageMemoryRequirementsInfo2 image_requirements_info;
+
+    image_requirements_info.image = m_offscreenColor.handle;
+    memory_requirements.pNext     = &dedicated_requirements;
+    device_.getImageMemoryRequirements2(&image_requirements_info, &memory_requirements);
+
+    auto staging_buffer = allocator_.MakeBuffer(
+        memory_requirements.memoryRequirements.size, vk::BufferUsageFlagBits::eTransferDst,
+        vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent);
+
+    auto buffer_copy_region = vk::BufferImageCopy().setImageExtent(vk::Extent3D{window_size_, 1});
+    buffer_copy_region.imageSubresource.setAspectMask(vk::ImageAspectFlagBits::eColor)
+        .setLayerCount(1);
+    cmd_buffer.copyImageToBuffer(m_offscreenColor.handle, vk::ImageLayout::eTransferSrcOptimal,
+                                 staging_buffer.handle, buffer_copy_region);
+
+    vkpbr::CmdBarrierImageLayout(cmd_buffer, m_offscreenColor.handle,
+                                 vk::ImageLayout::eTransferSrcOptimal, vk::ImageLayout::eGeneral,
+                                 subresource_range);
+
+    cmd_pool.SubmitAndWait(cmd_buffer);
+
+    u64 num_pixels = cast_u64(window_size_.width) * window_size_.height;
+
+    float* pixels = new float[num_pixels * 4];
+    {
+        void* staging_memory = device_.mapMemory(staging_buffer.memory, 0, VK_WHOLE_SIZE);
+        memcpy(pixels, staging_memory, num_pixels * 4 * sizeof(float));
+        device_.unmapMemory(staging_buffer.memory);
+    }
+    unsigned char* uchar_pixels = new unsigned char[num_pixels * 4];
+    for (u64 i = 0; i < num_pixels * 4; ++i) {
+        float pixel_f   = glm::clamp(pixels[i], 0.0f, 1.0f);
+        pixel_f         = std::pow(pixel_f, 1.0f / 2.2f);
+        uchar_pixels[i] = cast<u8>(pixel_f * 255);
+    }
+
+    stbi_write_bmp(file_name.c_str(), window_size_.width, window_size_.height, 4, uchar_pixels);
+
+    staging_buffer.DestroyFrom(device_);
+}
+
 //--------------------------------------------------------------------------------------------------
 // Initialize Vulkan ray tracing
 // #VKRay
@@ -1039,7 +1099,7 @@ void HelloVulkan::createTopLevelAS()
     for (const auto& node : gltf_scene_.m_nodes) {
         vkpbr::RaytracingBuilderKHR::Instance instance;
         memcpy(&instance.transform, &node.worldMatrix, sizeof instance.transform);
-        instance.instanceId = node.primMesh;    // glInstanceCustomIndexEXT
+        instance.instanceId = node.primMesh;  // glInstanceCustomIndexEXT
         instance.blasId     = node.primMesh;
         instance.flags      = vk::GeometryInstanceFlagBitsKHR::eTriangleFacingCullDisable;
         instance.hitGroupId = 0;  // Uses the same hit group for all objects.
@@ -1123,8 +1183,8 @@ void HelloVulkan::createRtPipeline()
                                 io::LoadBinaryFile("shaders/raytraceShadow.rmiss.spv", paths));
     vk::ShaderModule chitSM =  // Hit Group0 - Closest Hit
         vkpbr::MakeShaderModule(device_, io::LoadBinaryFile("shaders/raytrace.rchit.spv", paths));
-    //vk::ShaderModule chit2SM =  // Hit Group1 - Closest Hit + Intersection (procedural)
-        //vkpbr::MakeShaderModule(device_, io::LoadBinaryFile("shaders/raytrace2.rchit.spv", paths));
+    // vk::ShaderModule chit2SM =  // Hit Group1 - Closest Hit + Intersection (procedural)
+    // vkpbr::MakeShaderModule(device_, io::LoadBinaryFile("shaders/raytrace2.rchit.spv", paths));
 
     std::vector<vk::PipelineShaderStageCreateInfo> stages;
 
@@ -1248,7 +1308,7 @@ void HelloVulkan::raytrace(const vk::CommandBuffer& cmdBuf, const glm::vec4& cle
                                              | vk::ShaderStageFlagBits::eClosestHitKHR
                                              | vk::ShaderStageFlagBits::eMissKHR,
                                          0, m_rtPushConstants);
-    //LOG(INFO) << "rtpc.length = " << m_rtPushConstants.path_length;
+    // LOG(INFO) << "rtpc.length = " << m_rtPushConstants.path_length;
 
     vk::DeviceSize progSize = m_rtProperties.shaderGroupHandleSize;  // Size of a program identifier
     vk::DeviceSize rayGenOffset   = 0u * progSize;  // Start at the beginning of m_sbtBuffer
@@ -1271,18 +1331,20 @@ void HelloVulkan::raytrace(const vk::CommandBuffer& cmdBuf, const glm::vec4& cle
     m_debug.endLabel(cmdBuf);
 }
 
-void HelloVulkan::UpdateFrame() {
+void HelloVulkan::UpdateFrame()
+{
     static glm::mat4 ref_camera_matrix;
 
     auto& m = camera_navigator_->ViewMatrix();
     if (memcmp(&ref_camera_matrix[0][0], &m[0][0], sizeof(m)) != 0) {
         ResetFrame();
         ref_camera_matrix = m;
-        //LOG(INFO) << "view matrix cache updated";
+        // LOG(INFO) << "view matrix cache updated";
     }
     m_rtPushConstants.frame += 1;
 }
 
-void HelloVulkan::ResetFrame() {
+void HelloVulkan::ResetFrame()
+{
     m_rtPushConstants.frame = -1;
 }

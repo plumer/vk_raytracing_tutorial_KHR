@@ -26,9 +26,6 @@ layout(push_constant) uniform Constants
     float lightIntensity;
     int   lightType;
 
-//    int  selected_mtl_index;
-//    vec3 selected_color;
-//    int  path_length;
     int frame;
 }
 pushC;
@@ -40,7 +37,8 @@ void main()
         TinyEncryption(gl_LaunchIDEXT.y * gl_LaunchSizeEXT.x + gl_LaunchIDEXT.x, int(clockARB()));
 
     const vec2 pixelCenter = vec2(gl_LaunchIDEXT.xy) + vec2(0.5);
-    const vec2 inUV        = pixelCenter / vec2(gl_LaunchSizeEXT.xy);
+    const vec2 jitter = vec2(RandF32(rng_seed) - 0.5, RandF32(rng_seed) - 0.5);
+    const vec2 inUV        = (pixelCenter + jitter) / vec2(gl_LaunchSizeEXT.xy);
     vec2       d           = inUV * 2.0 - 1.0;
 
     vec4 origin    = ds_camera.viewInverse * vec4(0, 0, 0, 1);
