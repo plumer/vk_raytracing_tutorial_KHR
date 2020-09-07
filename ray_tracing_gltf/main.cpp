@@ -86,7 +86,7 @@ int main(int argc, char** argv)
     // Setup camera
     auto camera_navigator = std::make_shared<vkpbr::CameraNavigator>();
     camera_navigator->SetWindowSize(SAMPLE_WIDTH, SAMPLE_HEIGHT);
-    camera_navigator->SetLookAt(glm::vec3(20, 20, 20), glm::vec3(0, 1, 0), glm::vec3(0, 1, 0));
+    camera_navigator->SetLookAt(glm::vec3(0, 0, 15), glm::vec3(0, 0, 0), glm::vec3(0, 1, 0));
 
     // Setup Vulkan
     if (!glfwVulkanSupported()) {
@@ -136,7 +136,7 @@ int main(int argc, char** argv)
          VK_KHR_GET_MEMORY_REQUIREMENTS_2_EXTENSION_NAME, VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME,
          VK_EXT_SCALAR_BLOCK_LAYOUT_EXTENSION_NAME, VK_KHR_MAINTENANCE3_EXTENSION_NAME,
          VK_KHR_PIPELINE_LIBRARY_EXTENSION_NAME, VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME,
-         VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME});
+         VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME, VK_KHR_SHADER_CLOCK_EXTENSION_NAME});
     context_ci.AddDeviceExtension(VK_KHR_RAY_TRACING_EXTENSION_NAME, /*optional=*/false,
                                   &raytracingFeature);
     vkpbr::Context vk_context;
@@ -236,11 +236,13 @@ int main(int argc, char** argv)
                                             glm::vec3(0, 1, 0), true);
                 camera_navigator->SetMode(vkpbr::CameraNavigator::Modes::kExamine);
             }
-            ImGui::SliderInt("Mtl Index", &helloVk.m_rtPushConstants.selected_mtl_index, -1, 10);
-            ImGui::ColorEdit3("Mtl color", &helloVk.m_rtPushConstants.selected_mtl_color.x);
+            //ImGui::SliderInt("Mtl Index", &helloVk.m_rtPushConstants.selected_mtl_index, -1, 10);
+            //ImGui::ColorEdit3("Mtl color", &helloVk.m_rtPushConstants.selected_mtl_color.x);
+            //ImGui::SliderInt("Path length", &helloVk.m_rtPushConstants.path_length, 1, 10);
 
             ImGui::Text("Application average %.3f ms/frame (%.1f FPS)",
                         1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
+            ImGui::Text("# of frames accumulated: %d", helloVk.m_rtPushConstants.frame);
             ImGui::Render();
         }
 

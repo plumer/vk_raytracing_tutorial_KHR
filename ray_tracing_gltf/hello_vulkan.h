@@ -168,6 +168,10 @@ class HelloVulkan : public vkpbr::AppBase
     void createRtShaderBindingTable();
     void raytrace(const vk::CommandBuffer& cmdBuf, const glm::vec4& clearColor);
 
+    // Increments the frame number if the camera view isn't moved.
+    void UpdateFrame();
+    void ResetFrame();
+
     struct RtPrimitiveLookup {
         u32 index_offset   = 0;
         u32 vertex_offset  = 0;
@@ -190,7 +194,7 @@ class HelloVulkan : public vkpbr::AppBase
         kMiss,
         kShadowMiss,
         kClosestHit,
-        //kClosestHit2,
+        // kClosestHit2,
         kNumStages
     };
     std::vector<vk::RayTracingShaderGroupCreateInfoKHR> m_rtShaderGroups;
@@ -216,10 +220,12 @@ class HelloVulkan : public vkpbr::AppBase
     struct RtPushConstant {
         glm::vec4 clearColor;
         glm::vec3 lightPosition;
-        float     lightIntensity = 0;
-        int       lightType      = 0;
-        int       selected_mtl_index = 0;
-        glm::vec3 selected_mtl_color{0.1f, 0.1f, 0.1f};
+        float     lightIntensity     = 0;
+        int       lightType          = 0;
+        //int       selected_mtl_index = 0;
+        //glm::vec3 selected_mtl_color{0.1f, 0.1f, 0.1f};
+        //int       path_length = 5;
+        int frame = 0;
     } m_rtPushConstants;
 
 

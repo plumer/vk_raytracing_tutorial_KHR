@@ -2,6 +2,9 @@ cmake_minimum_required(VERSION 2.8)
 
 get_filename_component(PROJNAME ${CMAKE_CURRENT_SOURCE_DIR} NAME)
 SET(PROJNAME vk_${PROJNAME}_KHR)
+set(CMAKE_CXX_STANDARD 17)
+
+Message(STATUS "C++ STANDARD = ${CMAKE_CXX_STANDARD}")
 
 Project(${PROJNAME})
 Message(STATUS "-------------------------------")
@@ -16,8 +19,7 @@ _add_project_definitions(${PROJNAME})
 file(GLOB SOURCE_FILES *.cpp *.hpp *.inl *.h *.c)
 file(GLOB EXTRA_COMMON "../common/*.*")
 list(APPEND COMMON_SOURCE_FILES ${EXTRA_COMMON})
-include_directories("../common")
-
+include_directories("../common" "C:/dev/include")
 
 #####################################################################################
 # GLSL to SPIR-V custom build
@@ -38,9 +40,32 @@ file(GLOB_RECURSE GLSL_SOURCE_FILES
     "shaders/*.rmiss"
     "shaders/*.rgen"
     )
+#####################################################################################
+# Macro to add custom build for Spir-V
+# _SOURCE can be more than one file (.vert + .frag)
+# _OUTPUT is the .spv file, resulting from the linkage
+#
+macro(L_compile_GLSL _SOURCE _OUTPUT SOURCE_LIST OUTPUT_LIST)
+  if(NOT DEFINED VULKAN_TARGET_ENV)
+    SET(VULKAN_TARGET_ENV vulkan1.1)
+  endif()
+  LIST(APPEND ${SOURCE_LIST} ${_SOURCE})
+  LIST(APPEND ${OUTPUT_LIST} ${_OUTPUT})
+  if(GLSLANGVALIDATOR)
+    add_custom_command(
+      OUTPUT ${CMAKE_CURRENT_SOURCE_DIR}/${_OUTPUT}
+      COMMAND echo ${GLSLANGVALIDATOR} --target-env ${VULKAN_TARGET_ENV} -o ${_OUTPUT}  ${_SOURCE}
+      COMMAND ${GLSLANGVALIDATOR} --target-env ${VULKAN_TARGET_ENV} -o ${_OUTPUT} ${_SOURCE}
+      MAIN_DEPENDENCY ${_SOURCE}
+      WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+      )
+  else(GLSLANGVALIDATOR)
+    MESSAGE(WARNING "could not find GLSLANGVALIDATOR to compile shaders")
+  endif(GLSLANGVALIDATOR)
+endmacro()
 foreach(GLSL ${GLSL_SOURCE_FILES})
     get_filename_component(FILE_NAME ${GLSL} NAME)
-    _compile_GLSL(${GLSL} "shaders/${FILE_NAME}.spv" GLSL_SOURCES SPV_OUTPUT)
+    L_compile_GLSL(${GLSL} "shaders/${FILE_NAME}.spv" GLSL_SOURCES SPV_OUTPUT)
 endforeach(GLSL)
 
 list(APPEND GLSL_SOURCES ${GLSL_HEADER_FILES})

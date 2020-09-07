@@ -1,13 +1,26 @@
 
 // Information on the intersection point.
 struct hitPayload {
-    int  hits_emissive;  // Non-zero: hit an emissive surface. Zero: hit non-emissive surface.
-    vec3 hitValue;       // If hit an emissive surface, records the radiance.
 
+    // False if hits a surface.
+    bool hits_background;
+    // Non-zero: hit an emissive surface. Zero: hit non-emissive surface.
+    bool hits_emissive;  
+    
+    // If hit an emissive surface, records the radiance.
+    // Otherwise, records the evaluated BSDF value.
+    vec3 hitValue;       
+    
     vec3 position;
     vec3 normal;
     vec3 wo_world;
     vec3 wi_world;
+    
+    uint seed;
+    uint depth;
+    vec3 ray_origin;
+    vec3 ray_direction;
+    vec3 bsdf_weight;
 };
 
 struct Sphere {

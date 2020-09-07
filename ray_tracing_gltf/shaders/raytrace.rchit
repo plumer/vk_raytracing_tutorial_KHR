@@ -3,13 +3,13 @@
 #extension GL_EXT_nonuniform_qualifier : enable
 #extension GL_EXT_scalar_block_layout : enable
 #extension GL_GOOGLE_include_directive : enable
-#include "raycommon.glsl"
-#include "wavefront.glsl"
 
 hitAttributeEXT vec2 attribs;
 
+#include "raycommon.glsl"
 #include "bindings.glsl"
 #include "gltf.glsl"
+#include "sampling.glsl"
 
 // clang-format off
 
@@ -36,9 +36,6 @@ layout(push_constant) uniform Constants
     vec3  lightPosition;
     float lightIntensity;
     int   lightType;
-
-    int   selected_mtl_index;
-    vec3  selected_color;
 }
 pushC;
 
@@ -56,6 +53,19 @@ vec3 GetNormal(uint index)
 vec2 GetTexCoord(uint index)
 {
     return vec2(ds_texcoord0[2 * index + 0], ds_texcoord0[2 * index + 1]);
+}
+
+// Makes a vector perpendicular to v, and is the same length as v.
+vec3 MakePerpendicularVector(vec3 v)
+{
+    vec3 t       = vec3(0, 0, 0);
+    int  min_dim = 0;
+    if (v[min_dim] > v.y)
+        min_dim = 1;
+    if (v[min_dim] > v.z)
+        min_dim = 2;
+    t[min_dim] = 1;
+    return cross(v, t);
 }
 
 void main()
@@ -106,77 +116,28 @@ void main()
 
     // Computes the radiance along the ray.
     // --------------------------------------------------------------------------------------------
+    GltfMaterial mtl       = ds_materials[nonuniformEXT(mtl_index)];
+    vec3         emittance = mtl.emissiveFactor;
 
-    // Vector toward the light
-    vec3  L;
-    float lightIntensity = pushC.lightIntensity;
-    float lightDistance  = 100000.0;
-    // Point light
-    if (pushC.lightType == 0) {
-        vec3 lDir      = pushC.lightPosition - world_position;
-        lightDistance  = length(lDir);
-        lightIntensity = pushC.lightIntensity / (lightDistance * lightDistance);
-        L              = normalize(lDir);
-    } else  // Directional light
-    {
-        L = normalize(pushC.lightPosition - vec3(0));
-    }
+    // Pick a random direction from the surface intersection and keep going.
+    vec3 tangent, bitangent;
+    MakeCoordinateSystem(world_normal, tangent, bitangent);
 
-    // Material of the object
-    GltfMaterial mtl = ds_materials[nonuniformEXT(mtl_index)];
-    // Diffuse
-    vec3 diffuse = computeDiffuse(mtl, L, world_normal);
-    if (mtl.pbrBaseColorTexture > -1) {
-        uint txtId = mtl.pbrBaseColorTexture;
-        diffuse *= texture(ds_textures[nonuniformEXT(txtId)], texcoord0).xyz;
-    }
-
-    vec3  specular    = vec3(0);
-    float attenuation = 1;
-
-    // Traces shadow ray only if the light is on the same side with the normal on the surface.
-    if (dot(world_normal, L) > 0) {
-        float tMin   = 0.001;
-        float tMax   = lightDistance;
-        vec3  origin = gl_WorldRayOriginEXT + gl_WorldRayDirectionEXT * gl_HitTEXT;
-        vec3  rayDir = L;
-        uint  flags  = gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsOpaqueEXT
-                     | gl_RayFlagsSkipClosestHitShaderEXT;
-        isShadowed = true;
-        traceRayEXT(ds_top_level_AS,  // acceleration structure
-                    flags,            // rayFlags
-                    0xFF,             // cullMask
-                    0,                // sbtRecordOffset
-                    0,                // sbtRecordStride
-                    1,                // missIndex
-                    origin,           // ray origin
-                    tMin,             // ray min range
-                    rayDir,           // ray direction
-                    tMax,             // ray max range
-                    1                 // payload (location = 1)
-        );
-
-        if (isShadowed) {
-            attenuation = 0.3;
-        } else {
-            // Specular
-            specular = computeSpecular(mtl, gl_WorldRayDirectionEXT, L, normal);
-        }
-    }
-
-    ray_payload.hitValue = vec3(lightIntensity * attenuation * (diffuse + specular));
-
-    //    if (mtl.emissiveTexture < 0 && dot(mtl.emissiveFactor, vec3(1, 1, 1)) > 0.1) {
-    //        ray_payload.hitValue = vec3(0.2, 0.8, 1.0);
-    //    }
-
-    vec3 kMtlIndexColorCode[10] = {vec3(0.1, 0.3, 0.7), vec3(0.3, 0.1, 0.7), vec3(0.7, 0.1, 0.3),
-                                   vec3(0.7, 0.3, 0.1), vec3(0.1, 0.7, 0.3), vec3(0.3, 0.7, 0.1),
-                                   vec3(0.3, 0.3, 0.7), vec3(0.7, 0.7, 0.1), vec3(0.1, 0.1, 0.1),
-                                   vec3(0.7, 0.7, 0.7)};
-    if (pushC.selected_mtl_index == mtl_index) {
-        ray_payload.hitValue = kMtlIndexColorCode[mtl_index];
-        if (mtl.emissiveFactor.x > 0.01)
-            ray_payload.hitValue = vec3(0.8, 0.5, 0.1);
-    }
+    vec3 ray_origin    = world_position;
+    vec3 ray_direction = mat3(tangent, bitangent, world_normal) * SampleLocalHemi(ray_payload.seed);
+    
+    // Probability of the new ray.
+    const float kPr = 1 / M_PI;
+    
+    // Computes the BRDF for the ray.
+    float cos_theta = dot(ray_direction, world_normal);
+    vec3 albedo = mtl.pbrBaseColorFactor.xyz;
+    vec3 BRDF = albedo / M_PI;
+    
+    ray_payload.ray_origin = ray_origin;
+    ray_payload.ray_direction = ray_direction;
+    ray_payload.hitValue = emittance;
+    ray_payload.bsdf_weight = BRDF * cos_theta / kPr;  // !!
+    
+    return;
 }

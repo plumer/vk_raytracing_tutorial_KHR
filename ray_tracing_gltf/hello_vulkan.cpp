@@ -1123,8 +1123,8 @@ void HelloVulkan::createRtPipeline()
                                 io::LoadBinaryFile("shaders/raytraceShadow.rmiss.spv", paths));
     vk::ShaderModule chitSM =  // Hit Group0 - Closest Hit
         vkpbr::MakeShaderModule(device_, io::LoadBinaryFile("shaders/raytrace.rchit.spv", paths));
-    vk::ShaderModule chit2SM =  // Hit Group1 - Closest Hit + Intersection (procedural)
-        vkpbr::MakeShaderModule(device_, io::LoadBinaryFile("shaders/raytrace2.rchit.spv", paths));
+    //vk::ShaderModule chit2SM =  // Hit Group1 - Closest Hit + Intersection (procedural)
+        //vkpbr::MakeShaderModule(device_, io::LoadBinaryFile("shaders/raytrace2.rchit.spv", paths));
 
     std::vector<vk::PipelineShaderStageCreateInfo> stages;
 
@@ -1192,7 +1192,7 @@ void HelloVulkan::createRtPipeline()
     rayPipelineInfo.setLayout(m_rtPipelineLayout);
     m_rtPipeline = device_.createRayTracingPipelineKHR({}, rayPipelineInfo).value;
 
-    for (auto& shader_module : {raygenSM, missSM, shadowmissSM, chitSM, chit2SM}) {
+    for (auto& shader_module : {raygenSM, missSM, shadowmissSM, chitSM}) {
         device_.destroy(shader_module);
     }
 }
@@ -1231,6 +1231,8 @@ void HelloVulkan::createRtShaderBindingTable()
 //
 void HelloVulkan::raytrace(const vk::CommandBuffer& cmdBuf, const glm::vec4& clearColor)
 {
+    UpdateFrame();
+
     m_debug.beginLabel(cmdBuf, "Ray trace");
     // Initializing push constant values
     m_rtPushConstants.clearColor     = clearColor;
@@ -1246,6 +1248,7 @@ void HelloVulkan::raytrace(const vk::CommandBuffer& cmdBuf, const glm::vec4& cle
                                              | vk::ShaderStageFlagBits::eClosestHitKHR
                                              | vk::ShaderStageFlagBits::eMissKHR,
                                          0, m_rtPushConstants);
+    //LOG(INFO) << "rtpc.length = " << m_rtPushConstants.path_length;
 
     vk::DeviceSize progSize = m_rtProperties.shaderGroupHandleSize;  // Size of a program identifier
     vk::DeviceSize rayGenOffset   = 0u * progSize;  // Start at the beginning of m_sbtBuffer
@@ -1266,4 +1269,20 @@ void HelloVulkan::raytrace(const vk::CommandBuffer& cmdBuf, const glm::vec4& cle
                         window_size_.width, window_size_.height, 1);  //
 
     m_debug.endLabel(cmdBuf);
+}
+
+void HelloVulkan::UpdateFrame() {
+    static glm::mat4 ref_camera_matrix;
+
+    auto& m = camera_navigator_->ViewMatrix();
+    if (memcmp(&ref_camera_matrix[0][0], &m[0][0], sizeof(m)) != 0) {
+        ResetFrame();
+        ref_camera_matrix = m;
+        //LOG(INFO) << "view matrix cache updated";
+    }
+    m_rtPushConstants.frame += 1;
+}
+
+void HelloVulkan::ResetFrame() {
+    m_rtPushConstants.frame = -1;
 }
