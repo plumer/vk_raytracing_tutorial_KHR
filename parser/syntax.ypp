@@ -1,0 +1,405 @@
+%skeleton "lalr1.cc"
+%require "3.2"
+%debug
+%defines
+%define api.namespace {pbr}
+%define api.parser.class {Parser}
+
+%code requires {
+#include "tree.h"
+#include <string>
+namespace pbr {
+class Tokenizer;
+}
+#ifndef YY_NULLPTR
+# if defined __cplusplus && __cplusplus >= 201103L
+#  define YY_NULLPTR nullptr
+# else
+#  define YY_NULLPTR 0
+# endif
+#endif
+}
+
+%parse-param {Tokenizer &tokenizer}
+%parse-param {scene_t * scene_root}
+
+%code {
+#include <iostream>
+#include "tree.h"
+#include "tokenizer.h"
+
+#undef yylex
+#define yylex tokenizer.yylex
+}
+
+%define api.value.type variant
+%define parse.assert
+
+%token KW_ATTR_BEG KW_ATTR_END KW_WORLD_BEG KW_WORLD_END KW_OBJ_BEG KW_OBJ_END 
+%token KW_TRANS_BEG KW_TRANS_END
+%token KW_TRANSLATE KW_SCALE KW_ROTATE KW_IDENTITY KW_COORD_SYSTEM KW_COORD_SYSTEM_TRANS
+%token KW_TRANSFORM KW_CONCAT_TRANSFORM
+%token KW_LOOKAT KW_CAMERA
+%token KW_INTEGRATOR KW_SAMPLER KW_FILM KW_ACCELERATOR KW_FILTER
+%token KW_MATERIAL KW_TEXTURE KW_SHAPE
+%token KW_NAMED_MEDIUM KW_MAKE_NAMED_MEDIUM KW_OBJ_INST KW_MEDIUM_INTERFACE
+%token KW_NAMED_MATERIAL KW_MAKE_NAMED_MATERIAL
+%token KW_LIGHT_SRC KW_AREA_LIGHT_SRC
+%token <std::string> STRLIT
+%token <float> NUMBER
+%token KW_REVERSE_ORIENTATION
+
+%start Scene
+
+%type <std::vector<worlditem_node_t>> World WorldItemList
+%type <worlditem_node_t> Attribute Object TransformPair
+%type <worlditem_node_t> ObjectInst
+%type <worlditem_node_t> Shape Light AreaLight Material Texture
+%type <worlditem_node_t> ParticipatingMedia NamedMaterial
+%type <worlditem_node_t> WorldItem 
+
+%type <std::vector<swoption_t> > SWOptionList 
+%type <swoption_t> SWOptionItem Camera Sampler Film Filter Integrator Accel
+
+%type <int> Scene
+
+%type <std::vector<float> >        NumberList
+%type <std::vector<std::string> >     StrList
+%type <std::vector<param_node_t> >      ParamList
+%type <std::unique_ptr<transform_node_t> >  Transform
+
+%%
+
+Scene:
+    SWOptionList World {
+        // Fills in the content to parse parameters.
+        assert(scene_root);
+        scene_root->swoptions = std::move($1);
+        scene_root->world_items = std::move($2);
+    }
+    ;
+
+SWOptionList:
+    SWOptionList SWOptionItem {
+        $$ = std::move($1);
+        $$.push_back(std::move($2));
+    }
+    | {}
+    ;
+
+
+SWOptionItem:
+      Camera        {$$ = std::move($1);}
+    | Sampler       {$$ = std::move($1);}
+    | Film          {$$ = std::move($1);}
+    | Filter        {$$ = std::move($1);}
+    | Integrator    {$$ = std::move($1);}
+    | Accel         {$$ = std::move($1);}
+    | Transform {
+        $$.directive = swoption_t::directive_t::Transform;
+        $$.trans = std::move($1);
+    };
+
+Camera:
+    KW_CAMERA STRLIT ParamList {
+        $$.directive = swoption_t::directive_t::Camera;
+        $$.implementation = $2;
+        $$.params = std::move($3);
+    }
+    ;
+
+Sampler:
+    KW_SAMPLER STRLIT ParamList {
+        $$.directive = swoption_t::directive_t::Sampler;
+        $$.implementation = $2;
+        $$.params = std::move($3);
+    }
+    ;
+
+Film:
+    KW_FILM STRLIT ParamList {
+        $$.directive = swoption_t::directive_t::Film;
+        $$.implementation = $2;
+        $$.params = std::move($3);
+    }
+    ;
+
+Filter:
+    KW_FILTER STRLIT ParamList {
+        $$.directive = swoption_t::directive_t::Filter;
+        $$.implementation = $2;
+        $$.params = std::move($3);
+    }
+    ;
+
+Integrator:
+    KW_INTEGRATOR STRLIT ParamList {
+        $$.directive = swoption_t::directive_t::Integrator;
+        $$.implementation = $2;
+        $$.params = std::move($3);
+    }
+    ;
+
+Accel:
+    KW_ACCELERATOR STRLIT ParamList {
+        $$.directive = swoption_t::directive_t::Accel;
+        $$.implementation = $2;
+        $$.params = std::move($3);
+    }
+    ;
+
+Transform:
+    KW_IDENTITY { 
+        $$ = std::make_unique<transform_node_t>();
+        $$->t = transform_node_t::type::Identity;
+    }
+    | KW_TRANSLATE NUMBER NUMBER NUMBER {
+        $$ = std::make_unique<transform_node_t>();
+        $$->t = transform_node_t::type::Translate;
+        $$->numbers = {$2, $3, $4};
+    }
+    | KW_SCALE     NUMBER NUMBER NUMBER {
+        $$ = std::make_unique<transform_node_t>();
+        $$->t = transform_node_t::type::Scale;
+        $$->numbers = {$2, $3, $4};
+    }
+    | KW_ROTATE    NUMBER NUMBER NUMBER NUMBER {
+        $$ = std::make_unique<transform_node_t>();
+        $$->t = transform_node_t::type::Rotate;
+        $$->numbers = {$2, $3, $4, $5};
+    }
+    | KW_LOOKAT    NumberList {
+        $$ = std::make_unique<transform_node_t>();
+        $$->t = transform_node_t::type::LookAt;
+        $$->numbers = std::move($2); // collect_numbers($2, 9);
+    }
+    | KW_COORD_SYSTEM STRLIT {
+        $$ = std::make_unique<transform_node_t>();
+        $$->t = transform_node_t::type::CoordSys;
+        $$->str = $2;
+    }
+    | KW_COORD_SYSTEM_TRANS STRLIT {
+        $$ = std::make_unique<transform_node_t>();
+        $$->t = transform_node_t::type::CoordSysTrans;
+        $$->str = $2;
+    }
+    | KW_TRANSFORM NumberList {
+        $$ = std::make_unique<transform_node_t>();
+        $$->t = transform_node_t::type::Mat4;
+        $$->numbers = std::move($2); // collect_numbers($2, 16);
+    }
+    | KW_TRANSFORM '[' NumberList ']' {
+        $$ = std::make_unique<transform_node_t>();
+        $$->t = transform_node_t::type::Mat4;
+        $$->numbers = std::move($3); // collect_numbers($3, 16);
+    }
+    | KW_CONCAT_TRANSFORM NumberList {
+        $$ = std::make_unique<transform_node_t>();
+        $$->t = transform_node_t::type::ConcatMat4;
+        $$->numbers = std::move($2); // collect_numbers($2, 16);
+    }
+    | KW_CONCAT_TRANSFORM '[' NumberList ']' {
+        $$ = std::make_unique<transform_node_t>();
+        $$->t = transform_node_t::type::ConcatMat4;
+        $$->numbers = std::move($3); // collect_numbers($3, 16);
+    }
+    ;
+
+
+World:
+    KW_WORLD_BEG WorldItemList KW_WORLD_END { $$ = std::move($2); }
+    ;
+
+WorldItemList:
+    WorldItemList WorldItem { 
+        $$ = std::move($1);
+        $$.push_back(std::move($2));
+    } | WorldItem { $$.push_back(std::move($1)); }
+    ;
+
+WorldItem:
+    Transform {
+        // $$ = new worlditem_node_t;
+        $$.directive = worlditem_node_t::directive_t::Transform;
+        $$.trans = std::move($1);
+    }
+    
+    | Attribute     { $$ = std::move($1); }
+    | Object        { $$ = std::move($1); }
+    | TransformPair { $$ = std::move($1); }
+
+    | Shape     { $$ = std::move($1); }
+    | Material  { $$ = std::move($1); }
+    | Light     { $$ = std::move($1); }
+    | AreaLight { $$ = std::move($1); }
+    | Texture   { $$ = std::move($1); } 
+    
+    | ObjectInst            { $$ = std::move($1); }
+    | ParticipatingMedia    {$$ = std::move($1);}        // TODO
+    | KW_REVERSE_ORIENTATION {
+        $$.directive = worlditem_node_t::directive_t::ReverseOrientation;
+    }
+    | NamedMaterial {$$ = std::move($1);}             // TODO
+    ;
+
+Attribute:
+    KW_ATTR_BEG WorldItemList KW_ATTR_END {
+        $$.directive = worlditem_node_t::directive_t::AttrPair;
+        $$.child = std::move($2);
+    }
+    | KW_ATTR_BEG KW_ATTR_END {  }
+    ;
+
+
+Object:
+    KW_OBJ_BEG STRLIT WorldItemList KW_OBJ_END {
+        $$.directive = worlditem_node_t::directive_t::ObjPair;
+        $$.object_name = $2;
+        $$.child = std::move($3);
+    }
+    | KW_ATTR_BEG KW_OBJ_BEG STRLIT WorldItemList KW_ATTR_END KW_OBJ_END {
+        $$.directive = worlditem_node_t::directive_t::ObjPair;
+        $$.object_name = $3;
+        $$.child = std::move($4);
+    }
+    | KW_ATTR_BEG KW_OBJ_BEG STRLIT KW_ATTR_END KW_OBJ_END { }
+    ;
+
+TransformPair:
+    KW_TRANS_BEG WorldItemList KW_TRANS_END {
+        $$.directive = worlditem_node_t::directive_t::TransPair;
+        $$.child = std::move($2);
+    }
+    ;
+
+
+Shape:
+    KW_SHAPE STRLIT ParamList {
+        $$.directive = worlditem_node_t::directive_t::Shape;
+        $$.implementation = $2;
+        $$.params = std::move($3);
+    }
+    ;
+
+Light:
+    KW_LIGHT_SRC STRLIT ParamList {
+        $$.directive = worlditem_node_t::directive_t::Light;
+        $$.implementation = $2;
+        $$.params = std::move($3);
+    }
+    ;
+
+AreaLight:
+    KW_AREA_LIGHT_SRC STRLIT ParamList {
+        $$.directive = worlditem_node_t::directive_t::AreaLight;
+        $$.implementation = $2;
+        $$.params = std::move($3);
+    }
+    ;
+
+Material:
+    KW_MATERIAL STRLIT ParamList {
+        $$.directive = worlditem_node_t::directive_t::Material;
+        $$.implementation = $2;
+        $$.params = std::move($3);
+    }
+    ;
+
+Texture:
+    KW_TEXTURE STRLIT STRLIT STRLIT ParamList {
+        $$.directive = worlditem_node_t::directive_t::Texture;
+        $$.implementation = $4; // TODO move the strings but not copy them.
+        $$.tex_type = $3;
+        $$.tex_name = $2;
+        $$.params = std::move($5);
+    }
+    ;
+
+ParticipatingMedia:
+    KW_MAKE_NAMED_MEDIUM STRLIT ParamList {
+        $$.directive = worlditem_node_t::directive_t::MakeMedium;
+        $$.maked_name = $2;
+        $$.params = std::move($3);
+    }
+    |
+    KW_MEDIUM_INTERFACE STRLIT STRLIT {
+        $$.directive = worlditem_node_t::directive_t::MediaInst;
+        $$.inst_name = $3;
+    }
+    ;
+
+NamedMaterial:
+    KW_MAKE_NAMED_MATERIAL STRLIT ParamList {
+        // $$ = new struct worlditem_node_t;
+        $$.directive = worlditem_node_t::directive_t::MakeMaterial;
+        $$.maked_name = $2;
+        $$.params = std::move($3);
+    }
+    | KW_NAMED_MATERIAL STRLIT  {
+        // $$ = new struct worlditem_node_t;
+        $$.directive = worlditem_node_t::directive_t::MaterialInst;
+        $$.inst_name = $2;
+    }
+    ;
+
+ObjectInst:
+    KW_OBJ_INST STRLIT {
+        $$.directive = worlditem_node_t::directive_t::ObjInst;
+        $$.inst_name = $2;
+    }
+    ;
+
+NumberList:
+    NumberList NUMBER {
+        $$ = std::move($1);
+        $$.push_back($2);
+    } | NUMBER {
+        $$.push_back($1);
+    }
+    ;
+
+StrList:
+    StrList STRLIT {
+        $$ = std::move($1);
+        $$.push_back($2);
+    } | STRLIT {
+        $$.push_back($1);
+    };
+
+ParamList:
+    ParamList STRLIT '[' NumberList ']' {
+        param_node_t parameter;
+        parameter.key = std::move($2);
+        parameter.numbers = std::move($4);
+        
+        $$ = std::move($1);
+        $$.push_back(std::move(parameter));
+    } | ParamList STRLIT '[' StrList ']'{
+        param_node_t parameter;
+        parameter.key = std::move($2);
+        parameter.strings = std::move($4);
+        
+        $$ = std::move($1);
+        $$.push_back(std::move(parameter));
+    } | ParamList STRLIT STRLIT {
+        param_node_t parameter;
+        parameter.key = std::move($2);
+        parameter.strings.push_back(std::move($3));
+        
+        $$ = std::move($1);
+        $$.push_back(std::move(parameter));
+    } | ParamList STRLIT NumberList {
+        param_node_t parameter;
+        parameter.key = std::move($2);
+        parameter.numbers = std::move($3);
+        
+        $$ = std::move($1);
+        $$.push_back(std::move(parameter));
+    } | {}
+    ;
+
+%%
+
+void pbr::Parser::error(const std::string &message) {
+    std::cerr << "parsing error: " << message << std::endl;
+}
