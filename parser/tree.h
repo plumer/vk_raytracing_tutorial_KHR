@@ -43,7 +43,7 @@ struct swoption_t {
     std::vector<param_node_t> params ;
 
     // except Transforms
-    std::unique_ptr<struct transform_node_t> trans = nullptr;
+    std::shared_ptr<struct transform_node_t> trans = nullptr;
 
     swoption_t() = default;
     explicit swoption_t(directive_t d) : directive{ d } {}
@@ -69,7 +69,7 @@ struct worlditem_node_t {
     std::string object_name;
 
     // for transform
-    std::unique_ptr<struct transform_node_t> trans = nullptr;
+    std::shared_ptr<struct transform_node_t> trans = nullptr;
 
     // for makers
     std::string maked_name;
@@ -91,7 +91,7 @@ void print_scene(const scene_t &);
 
 void print_worlditem(const worlditem_node_t &w);
 
-void print_param(const param_node_t & p);
+void print_param(const std::vector<param_node_t> & parameters);
 
 #endif // TREE_H
 

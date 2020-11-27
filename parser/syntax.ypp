@@ -66,7 +66,7 @@ class Tokenizer;
 %type <std::vector<float> >        NumberList
 %type <std::vector<std::string> >     StrList
 %type <std::vector<param_node_t> >      ParamList
-%type <std::unique_ptr<transform_node_t> >  Transform
+%type <std::shared_ptr<transform_node_t> >  Transform
 
 %%
 
@@ -150,56 +150,56 @@ Accel:
 
 Transform:
     KW_IDENTITY { 
-        $$ = std::make_unique<transform_node_t>();
+        $$ = std::make_shared<transform_node_t>();
         $$->t = transform_node_t::type::Identity;
     }
     | KW_TRANSLATE NUMBER NUMBER NUMBER {
-        $$ = std::make_unique<transform_node_t>();
+        $$ = std::make_shared<transform_node_t>();
         $$->t = transform_node_t::type::Translate;
         $$->numbers = {$2, $3, $4};
     }
     | KW_SCALE     NUMBER NUMBER NUMBER {
-        $$ = std::make_unique<transform_node_t>();
+        $$ = std::make_shared<transform_node_t>();
         $$->t = transform_node_t::type::Scale;
         $$->numbers = {$2, $3, $4};
     }
     | KW_ROTATE    NUMBER NUMBER NUMBER NUMBER {
-        $$ = std::make_unique<transform_node_t>();
+        $$ = std::make_shared<transform_node_t>();
         $$->t = transform_node_t::type::Rotate;
         $$->numbers = {$2, $3, $4, $5};
     }
     | KW_LOOKAT    NumberList {
-        $$ = std::make_unique<transform_node_t>();
+        $$ = std::make_shared<transform_node_t>();
         $$->t = transform_node_t::type::LookAt;
         $$->numbers = std::move($2); // collect_numbers($2, 9);
     }
     | KW_COORD_SYSTEM STRLIT {
-        $$ = std::make_unique<transform_node_t>();
+        $$ = std::make_shared<transform_node_t>();
         $$->t = transform_node_t::type::CoordSys;
         $$->str = $2;
     }
     | KW_COORD_SYSTEM_TRANS STRLIT {
-        $$ = std::make_unique<transform_node_t>();
+        $$ = std::make_shared<transform_node_t>();
         $$->t = transform_node_t::type::CoordSysTrans;
         $$->str = $2;
     }
     | KW_TRANSFORM NumberList {
-        $$ = std::make_unique<transform_node_t>();
+        $$ = std::make_shared<transform_node_t>();
         $$->t = transform_node_t::type::Mat4;
         $$->numbers = std::move($2); // collect_numbers($2, 16);
     }
     | KW_TRANSFORM '[' NumberList ']' {
-        $$ = std::make_unique<transform_node_t>();
+        $$ = std::make_shared<transform_node_t>();
         $$->t = transform_node_t::type::Mat4;
         $$->numbers = std::move($3); // collect_numbers($3, 16);
     }
     | KW_CONCAT_TRANSFORM NumberList {
-        $$ = std::make_unique<transform_node_t>();
+        $$ = std::make_shared<transform_node_t>();
         $$->t = transform_node_t::type::ConcatMat4;
         $$->numbers = std::move($2); // collect_numbers($2, 16);
     }
     | KW_CONCAT_TRANSFORM '[' NumberList ']' {
-        $$ = std::make_unique<transform_node_t>();
+        $$ = std::make_shared<transform_node_t>();
         $$->t = transform_node_t::type::ConcatMat4;
         $$->numbers = std::move($3); // collect_numbers($3, 16);
     }

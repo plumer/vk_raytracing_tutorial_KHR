@@ -165,12 +165,12 @@ namespace pbr {
         value.move< int > (std::move (that.value));
         break;
 
-      case 37: // STRLIT
-        value.move< std::string > (std::move (that.value));
+      case 52: // Transform
+        value.move< std::shared_ptr<transform_node_t>  > (std::move (that.value));
         break;
 
-      case 52: // Transform
-        value.move< std::unique_ptr<transform_node_t>  > (std::move (that.value));
+      case 37: // STRLIT
+        value.move< std::string > (std::move (that.value));
         break;
 
       case 67: // NumberList
@@ -241,12 +241,12 @@ namespace pbr {
         value.copy< int > (YY_MOVE (that.value));
         break;
 
-      case 37: // STRLIT
-        value.copy< std::string > (YY_MOVE (that.value));
+      case 52: // Transform
+        value.copy< std::shared_ptr<transform_node_t>  > (YY_MOVE (that.value));
         break;
 
-      case 52: // Transform
-        value.copy< std::unique_ptr<transform_node_t>  > (YY_MOVE (that.value));
+      case 37: // STRLIT
+        value.copy< std::string > (YY_MOVE (that.value));
         break;
 
       case 67: // NumberList
@@ -325,12 +325,12 @@ namespace pbr {
         value.move< int > (YY_MOVE (s.value));
         break;
 
-      case 37: // STRLIT
-        value.move< std::string > (YY_MOVE (s.value));
+      case 52: // Transform
+        value.move< std::shared_ptr<transform_node_t>  > (YY_MOVE (s.value));
         break;
 
-      case 52: // Transform
-        value.move< std::unique_ptr<transform_node_t>  > (YY_MOVE (s.value));
+      case 37: // STRLIT
+        value.move< std::string > (YY_MOVE (s.value));
         break;
 
       case 67: // NumberList
@@ -477,12 +477,12 @@ namespace pbr {
         value.YY_MOVE_OR_COPY< int > (YY_MOVE (that.value));
         break;
 
-      case 37: // STRLIT
-        value.YY_MOVE_OR_COPY< std::string > (YY_MOVE (that.value));
+      case 52: // Transform
+        value.YY_MOVE_OR_COPY< std::shared_ptr<transform_node_t>  > (YY_MOVE (that.value));
         break;
 
-      case 52: // Transform
-        value.YY_MOVE_OR_COPY< std::unique_ptr<transform_node_t>  > (YY_MOVE (that.value));
+      case 37: // STRLIT
+        value.YY_MOVE_OR_COPY< std::string > (YY_MOVE (that.value));
         break;
 
       case 67: // NumberList
@@ -554,12 +554,12 @@ namespace pbr {
         value.move< int > (YY_MOVE (that.value));
         break;
 
-      case 37: // STRLIT
-        value.move< std::string > (YY_MOVE (that.value));
+      case 52: // Transform
+        value.move< std::shared_ptr<transform_node_t>  > (YY_MOVE (that.value));
         break;
 
-      case 52: // Transform
-        value.move< std::unique_ptr<transform_node_t>  > (YY_MOVE (that.value));
+      case 37: // STRLIT
+        value.move< std::string > (YY_MOVE (that.value));
         break;
 
       case 67: // NumberList
@@ -631,12 +631,12 @@ namespace pbr {
         value.copy< int > (that.value);
         break;
 
-      case 37: // STRLIT
-        value.copy< std::string > (that.value);
+      case 52: // Transform
+        value.copy< std::shared_ptr<transform_node_t>  > (that.value);
         break;
 
-      case 52: // Transform
-        value.copy< std::unique_ptr<transform_node_t>  > (that.value);
+      case 37: // STRLIT
+        value.copy< std::string > (that.value);
         break;
 
       case 67: // NumberList
@@ -706,12 +706,12 @@ namespace pbr {
         value.move< int > (that.value);
         break;
 
-      case 37: // STRLIT
-        value.move< std::string > (that.value);
+      case 52: // Transform
+        value.move< std::shared_ptr<transform_node_t>  > (that.value);
         break;
 
-      case 52: // Transform
-        value.move< std::unique_ptr<transform_node_t>  > (that.value);
+      case 37: // STRLIT
+        value.move< std::string > (that.value);
         break;
 
       case 67: // NumberList
@@ -1012,12 +1012,12 @@ namespace pbr {
         yylhs.value.emplace< int > ();
         break;
 
-      case 37: // STRLIT
-        yylhs.value.emplace< std::string > ();
+      case 52: // Transform
+        yylhs.value.emplace< std::shared_ptr<transform_node_t>  > ();
         break;
 
-      case 52: // Transform
-        yylhs.value.emplace< std::unique_ptr<transform_node_t>  > ();
+      case 37: // STRLIT
+        yylhs.value.emplace< std::string > ();
         break;
 
       case 67: // NumberList
@@ -1146,7 +1146,7 @@ namespace pbr {
 #line 98 "syntax.ypp"
                 {
         yylhs.value.as < swoption_t > ().directive = swoption_t::directive_t::Transform;
-        yylhs.value.as < swoption_t > ().trans = std::move(yystack_[0].value.as < std::unique_ptr<transform_node_t>  > ());
+        yylhs.value.as < swoption_t > ().trans = std::move(yystack_[0].value.as < std::shared_ptr<transform_node_t>  > ());
     }
 #line 1152 "syntax.tab.cpp"
     break;
@@ -1214,8 +1214,8 @@ namespace pbr {
   case 18:
 #line 152 "syntax.ypp"
                 { 
-        yylhs.value.as < std::unique_ptr<transform_node_t>  > () = std::make_unique<transform_node_t>();
-        yylhs.value.as < std::unique_ptr<transform_node_t>  > ()->t = transform_node_t::type::Identity;
+        yylhs.value.as < std::shared_ptr<transform_node_t>  > () = std::make_shared<transform_node_t>();
+        yylhs.value.as < std::shared_ptr<transform_node_t>  > ()->t = transform_node_t::type::Identity;
     }
 #line 1221 "syntax.tab.cpp"
     break;
@@ -1223,9 +1223,9 @@ namespace pbr {
   case 19:
 #line 156 "syntax.ypp"
                                         {
-        yylhs.value.as < std::unique_ptr<transform_node_t>  > () = std::make_unique<transform_node_t>();
-        yylhs.value.as < std::unique_ptr<transform_node_t>  > ()->t = transform_node_t::type::Translate;
-        yylhs.value.as < std::unique_ptr<transform_node_t>  > ()->numbers = {yystack_[2].value.as < float > (), yystack_[1].value.as < float > (), yystack_[0].value.as < float > ()};
+        yylhs.value.as < std::shared_ptr<transform_node_t>  > () = std::make_shared<transform_node_t>();
+        yylhs.value.as < std::shared_ptr<transform_node_t>  > ()->t = transform_node_t::type::Translate;
+        yylhs.value.as < std::shared_ptr<transform_node_t>  > ()->numbers = {yystack_[2].value.as < float > (), yystack_[1].value.as < float > (), yystack_[0].value.as < float > ()};
     }
 #line 1231 "syntax.tab.cpp"
     break;
@@ -1233,9 +1233,9 @@ namespace pbr {
   case 20:
 #line 161 "syntax.ypp"
                                         {
-        yylhs.value.as < std::unique_ptr<transform_node_t>  > () = std::make_unique<transform_node_t>();
-        yylhs.value.as < std::unique_ptr<transform_node_t>  > ()->t = transform_node_t::type::Scale;
-        yylhs.value.as < std::unique_ptr<transform_node_t>  > ()->numbers = {yystack_[2].value.as < float > (), yystack_[1].value.as < float > (), yystack_[0].value.as < float > ()};
+        yylhs.value.as < std::shared_ptr<transform_node_t>  > () = std::make_shared<transform_node_t>();
+        yylhs.value.as < std::shared_ptr<transform_node_t>  > ()->t = transform_node_t::type::Scale;
+        yylhs.value.as < std::shared_ptr<transform_node_t>  > ()->numbers = {yystack_[2].value.as < float > (), yystack_[1].value.as < float > (), yystack_[0].value.as < float > ()};
     }
 #line 1241 "syntax.tab.cpp"
     break;
@@ -1243,9 +1243,9 @@ namespace pbr {
   case 21:
 #line 166 "syntax.ypp"
                                                {
-        yylhs.value.as < std::unique_ptr<transform_node_t>  > () = std::make_unique<transform_node_t>();
-        yylhs.value.as < std::unique_ptr<transform_node_t>  > ()->t = transform_node_t::type::Rotate;
-        yylhs.value.as < std::unique_ptr<transform_node_t>  > ()->numbers = {yystack_[3].value.as < float > (), yystack_[2].value.as < float > (), yystack_[1].value.as < float > (), yystack_[0].value.as < float > ()};
+        yylhs.value.as < std::shared_ptr<transform_node_t>  > () = std::make_shared<transform_node_t>();
+        yylhs.value.as < std::shared_ptr<transform_node_t>  > ()->t = transform_node_t::type::Rotate;
+        yylhs.value.as < std::shared_ptr<transform_node_t>  > ()->numbers = {yystack_[3].value.as < float > (), yystack_[2].value.as < float > (), yystack_[1].value.as < float > (), yystack_[0].value.as < float > ()};
     }
 #line 1251 "syntax.tab.cpp"
     break;
@@ -1253,9 +1253,9 @@ namespace pbr {
   case 22:
 #line 171 "syntax.ypp"
                               {
-        yylhs.value.as < std::unique_ptr<transform_node_t>  > () = std::make_unique<transform_node_t>();
-        yylhs.value.as < std::unique_ptr<transform_node_t>  > ()->t = transform_node_t::type::LookAt;
-        yylhs.value.as < std::unique_ptr<transform_node_t>  > ()->numbers = std::move(yystack_[0].value.as < std::vector<float>  > ()); // collect_numbers($2, 9);
+        yylhs.value.as < std::shared_ptr<transform_node_t>  > () = std::make_shared<transform_node_t>();
+        yylhs.value.as < std::shared_ptr<transform_node_t>  > ()->t = transform_node_t::type::LookAt;
+        yylhs.value.as < std::shared_ptr<transform_node_t>  > ()->numbers = std::move(yystack_[0].value.as < std::vector<float>  > ()); // collect_numbers($2, 9);
     }
 #line 1261 "syntax.tab.cpp"
     break;
@@ -1263,9 +1263,9 @@ namespace pbr {
   case 23:
 #line 176 "syntax.ypp"
                              {
-        yylhs.value.as < std::unique_ptr<transform_node_t>  > () = std::make_unique<transform_node_t>();
-        yylhs.value.as < std::unique_ptr<transform_node_t>  > ()->t = transform_node_t::type::CoordSys;
-        yylhs.value.as < std::unique_ptr<transform_node_t>  > ()->str = yystack_[0].value.as < std::string > ();
+        yylhs.value.as < std::shared_ptr<transform_node_t>  > () = std::make_shared<transform_node_t>();
+        yylhs.value.as < std::shared_ptr<transform_node_t>  > ()->t = transform_node_t::type::CoordSys;
+        yylhs.value.as < std::shared_ptr<transform_node_t>  > ()->str = yystack_[0].value.as < std::string > ();
     }
 #line 1271 "syntax.tab.cpp"
     break;
@@ -1273,9 +1273,9 @@ namespace pbr {
   case 24:
 #line 181 "syntax.ypp"
                                    {
-        yylhs.value.as < std::unique_ptr<transform_node_t>  > () = std::make_unique<transform_node_t>();
-        yylhs.value.as < std::unique_ptr<transform_node_t>  > ()->t = transform_node_t::type::CoordSysTrans;
-        yylhs.value.as < std::unique_ptr<transform_node_t>  > ()->str = yystack_[0].value.as < std::string > ();
+        yylhs.value.as < std::shared_ptr<transform_node_t>  > () = std::make_shared<transform_node_t>();
+        yylhs.value.as < std::shared_ptr<transform_node_t>  > ()->t = transform_node_t::type::CoordSysTrans;
+        yylhs.value.as < std::shared_ptr<transform_node_t>  > ()->str = yystack_[0].value.as < std::string > ();
     }
 #line 1281 "syntax.tab.cpp"
     break;
@@ -1283,9 +1283,9 @@ namespace pbr {
   case 25:
 #line 186 "syntax.ypp"
                               {
-        yylhs.value.as < std::unique_ptr<transform_node_t>  > () = std::make_unique<transform_node_t>();
-        yylhs.value.as < std::unique_ptr<transform_node_t>  > ()->t = transform_node_t::type::Mat4;
-        yylhs.value.as < std::unique_ptr<transform_node_t>  > ()->numbers = std::move(yystack_[0].value.as < std::vector<float>  > ()); // collect_numbers($2, 16);
+        yylhs.value.as < std::shared_ptr<transform_node_t>  > () = std::make_shared<transform_node_t>();
+        yylhs.value.as < std::shared_ptr<transform_node_t>  > ()->t = transform_node_t::type::Mat4;
+        yylhs.value.as < std::shared_ptr<transform_node_t>  > ()->numbers = std::move(yystack_[0].value.as < std::vector<float>  > ()); // collect_numbers($2, 16);
     }
 #line 1291 "syntax.tab.cpp"
     break;
@@ -1293,9 +1293,9 @@ namespace pbr {
   case 26:
 #line 191 "syntax.ypp"
                                       {
-        yylhs.value.as < std::unique_ptr<transform_node_t>  > () = std::make_unique<transform_node_t>();
-        yylhs.value.as < std::unique_ptr<transform_node_t>  > ()->t = transform_node_t::type::Mat4;
-        yylhs.value.as < std::unique_ptr<transform_node_t>  > ()->numbers = std::move(yystack_[1].value.as < std::vector<float>  > ()); // collect_numbers($3, 16);
+        yylhs.value.as < std::shared_ptr<transform_node_t>  > () = std::make_shared<transform_node_t>();
+        yylhs.value.as < std::shared_ptr<transform_node_t>  > ()->t = transform_node_t::type::Mat4;
+        yylhs.value.as < std::shared_ptr<transform_node_t>  > ()->numbers = std::move(yystack_[1].value.as < std::vector<float>  > ()); // collect_numbers($3, 16);
     }
 #line 1301 "syntax.tab.cpp"
     break;
@@ -1303,9 +1303,9 @@ namespace pbr {
   case 27:
 #line 196 "syntax.ypp"
                                      {
-        yylhs.value.as < std::unique_ptr<transform_node_t>  > () = std::make_unique<transform_node_t>();
-        yylhs.value.as < std::unique_ptr<transform_node_t>  > ()->t = transform_node_t::type::ConcatMat4;
-        yylhs.value.as < std::unique_ptr<transform_node_t>  > ()->numbers = std::move(yystack_[0].value.as < std::vector<float>  > ()); // collect_numbers($2, 16);
+        yylhs.value.as < std::shared_ptr<transform_node_t>  > () = std::make_shared<transform_node_t>();
+        yylhs.value.as < std::shared_ptr<transform_node_t>  > ()->t = transform_node_t::type::ConcatMat4;
+        yylhs.value.as < std::shared_ptr<transform_node_t>  > ()->numbers = std::move(yystack_[0].value.as < std::vector<float>  > ()); // collect_numbers($2, 16);
     }
 #line 1311 "syntax.tab.cpp"
     break;
@@ -1313,9 +1313,9 @@ namespace pbr {
   case 28:
 #line 201 "syntax.ypp"
                                              {
-        yylhs.value.as < std::unique_ptr<transform_node_t>  > () = std::make_unique<transform_node_t>();
-        yylhs.value.as < std::unique_ptr<transform_node_t>  > ()->t = transform_node_t::type::ConcatMat4;
-        yylhs.value.as < std::unique_ptr<transform_node_t>  > ()->numbers = std::move(yystack_[1].value.as < std::vector<float>  > ()); // collect_numbers($3, 16);
+        yylhs.value.as < std::shared_ptr<transform_node_t>  > () = std::make_shared<transform_node_t>();
+        yylhs.value.as < std::shared_ptr<transform_node_t>  > ()->t = transform_node_t::type::ConcatMat4;
+        yylhs.value.as < std::shared_ptr<transform_node_t>  > ()->numbers = std::move(yystack_[1].value.as < std::vector<float>  > ()); // collect_numbers($3, 16);
     }
 #line 1321 "syntax.tab.cpp"
     break;
@@ -1346,7 +1346,7 @@ namespace pbr {
               {
         // $$ = new worlditem_node_t;
         yylhs.value.as < worlditem_node_t > ().directive = worlditem_node_t::directive_t::Transform;
-        yylhs.value.as < worlditem_node_t > ().trans = std::move(yystack_[0].value.as < std::unique_ptr<transform_node_t>  > ());
+        yylhs.value.as < worlditem_node_t > ().trans = std::move(yystack_[0].value.as < std::shared_ptr<transform_node_t>  > ());
     }
 #line 1352 "syntax.tab.cpp"
     break;

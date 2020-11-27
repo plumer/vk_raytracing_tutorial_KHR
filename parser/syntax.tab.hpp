@@ -404,11 +404,11 @@ namespace pbr {
       // Scene
       char dummy2[sizeof (int)];
 
-      // STRLIT
-      char dummy3[sizeof (std::string)];
-
       // Transform
-      char dummy4[sizeof (std::unique_ptr<transform_node_t> )];
+      char dummy3[sizeof (std::shared_ptr<transform_node_t> )];
+
+      // STRLIT
+      char dummy4[sizeof (std::string)];
 
       // NumberList
       char dummy5[sizeof (std::vector<float> )];
@@ -599,23 +599,23 @@ namespace pbr {
       {}
 #endif
 #if 201103L <= YY_CPLUSPLUS
+      basic_symbol (typename Base::kind_type t, std::shared_ptr<transform_node_t> && v)
+        : Base (t)
+        , value (std::move (v))
+      {}
+#else
+      basic_symbol (typename Base::kind_type t, const std::shared_ptr<transform_node_t> & v)
+        : Base (t)
+        , value (v)
+      {}
+#endif
+#if 201103L <= YY_CPLUSPLUS
       basic_symbol (typename Base::kind_type t, std::string&& v)
         : Base (t)
         , value (std::move (v))
       {}
 #else
       basic_symbol (typename Base::kind_type t, const std::string& v)
-        : Base (t)
-        , value (v)
-      {}
-#endif
-#if 201103L <= YY_CPLUSPLUS
-      basic_symbol (typename Base::kind_type t, std::unique_ptr<transform_node_t> && v)
-        : Base (t)
-        , value (std::move (v))
-      {}
-#else
-      basic_symbol (typename Base::kind_type t, const std::unique_ptr<transform_node_t> & v)
         : Base (t)
         , value (v)
       {}
@@ -728,12 +728,12 @@ switch (yytype)
         value.template destroy< int > ();
         break;
 
-      case 37: // STRLIT
-        value.template destroy< std::string > ();
+      case 52: // Transform
+        value.template destroy< std::shared_ptr<transform_node_t>  > ();
         break;
 
-      case 52: // Transform
-        value.template destroy< std::unique_ptr<transform_node_t>  > ();
+      case 37: // STRLIT
+        value.template destroy< std::string > ();
         break;
 
       case 67: // NumberList
