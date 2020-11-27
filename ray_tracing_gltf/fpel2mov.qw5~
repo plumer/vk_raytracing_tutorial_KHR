@@ -1,0 +1,129 @@
+#ifndef NVCOPY_PBRT_SCENE_H_
+#define NVCOPY_PBRT_SCENE_H_
+
+#include <filesystem>
+#include <glm/glm.hpp>
+#include <map>
+
+#include "../parser/tree.h"
+#include "../common/types.h"
+
+namespace vkpbr {
+
+struct PlyMesh {
+    std::vector<glm::vec3> positions;
+    std::vector<glm::vec3> normals;
+    std::vector<glm::vec2> texture_uvs;
+    std::vector<i32> indices;
+    size_t                 material_index = -1;
+};
+
+struct Mapping {
+    enum class Type {eUV, eSphere, eCylinder, ePlanar} type;
+    float uscale = 0.0, vscale = 0.0, udelta = 0.0, vdelta = 0.0;
+    static Mapping UV(float uscale, float vscale, float udelta, float vdelta)
+    {
+        Mapping m {Type::eUV, uscale, vscale, udelta, vdelta};
+        return m;
+    }
+};
+
+struct ImageData {
+    std::vector<u8> data;
+    u32 width, u32 height;
+    vk::Format format;
+};
+
+struct Texture {
+    enum class Type { eConstant, eCheckered, eBilinear, eSampledImage } type;
+    glm::vec3 constant_color;
+    glm::vec3 bilinear_colors[4];
+    int       checker_indices[2] = {-1, -1};
+    int       sampler            = -1;
+
+    static Texture Constant(glm::vec3 color)
+    {
+        Texture tex;
+        tex.type           = Type::eConstant;
+        tex.constant_color = color;
+        return tex;
+    }
+    static Texture Bilinear(glm::vec3 color0, glm::vec3 color1, glm::vec3 color2, glm::vec3 color3)
+    {
+        Texture tex;
+        tex.type               = Type::eBilinear;
+        tex.bilinear_colors[0] = color0;
+        tex.bilinear_colors[1] = color1;
+        tex.bilinear_colors[2] = color2;
+        tex.bilinear_colors[3] = color3;
+
+        return tex;
+    }
+};
+
+struct Material {
+    enum class Type { eMatte, ePlastic, eMetal, eMirror, eGlass, eUber } type;
+    int   diffuse_tex_id      = -1;  // eMatte, ePlastic
+    int   specular_tex_id     = -1;  // eMirror, ePlastic
+    int   reflective_tex_id   = -1;  // eUber
+    int   transmissive_tex_id = -1;  // eUber
+    float eta                 = 0.0;
+    float eta_imaginary       = 0.0;
+    float roughness_sigma     = 0.0;  // eMatte
+    float u_roughness         = 0.0;  // ePlastic
+    float v_roughness         = 0.0;  // ePlastic
+    explicit Material(Type t)
+        : type(t)
+    {}
+};
+
+struct Light {
+    enum class Type { ePoint, eDistant, eInfinite, eSpot } type;
+    glm::vec3 illuminance = {0, 0, 0};
+    glm::mat4 transform;
+    glm::vec3 direction;
+    explicit Light(Type t)
+        : type(t)
+    {}
+    static Light Point(glm::vec3 illuminance_, glm::mat4 transform_)
+    {
+        Light p(Type::ePoint);
+        p.illuminance = illuminance_;
+        p.transform   = transform_;
+        return p;
+    }
+};
+
+class SceneLoader;
+
+class Scene
+{
+  public:
+    // Loads the scene from a ".pbrt" file. Instantiates a `Sceneloader` object
+    // to do the work. Writes to all members.
+    bool LoadFromFile(const char* pbrt_file);
+
+    // Loads the scene from a parsed ".pbrt" file in the form of an AST.
+    // TODO(zixun): it's possible to only take the WORLD part of the AST.
+    bool LoadFromAst(const scene_t* root, const std::filesystem::path& root_path);
+
+    // Stores all primitives, with their underlying shapes and materials etc.
+    // For all triangle meshes, a shared pointer is stored in `loaded_meshes`
+    // organized as bounding-volume hierarchies (working like low-level accel
+    // structures in Vulkan RT extension).
+    // std::vector<std::shared_ptr<GeometricPrimitive>> primitives;
+
+    // Caches the meshes loaded from file, organized as TriangleBVH.
+    // The meshes are stored with associated material in GeometricPrimitive.
+    // std::map<std::string, std::shared_ptr<TriangleBVH>> loaded_meshes;
+
+    // bbox3 world_bound() const;
+    // bool intersectP(const Ray &r) const;
+
+    /** Performs ray-primitive intersection to all primitives and returns the
+     * intersection information.
+     * @param isect where intersection info is written if ray hits an object.
+     * @return if the ray hits any object in the scene.
+     * TODO(zixun): organizes all primitives as a "top-level accel structure".
+     */
+    // bool intersect(const Ray 

@@ -218,10 +218,11 @@ The size of each group can be described as follows:
 
 ~~~~ C++
   // Sizes
-  uint32_t rayGenSize = groupHandleSize;
-  uint32_t missSize   = groupHandleSize;
-  uint32_t hitSize    = groupHandleSize + sizeof(HitRecordBuffer);
-  uint32_t newSbtSize = rayGenSize + 2 * missSize + 2 * hitSize;
+  uint32_t rayGenSize = groupSizeAligned;
+  uint32_t missSize   = groupSizeAligned;
+  uint32_t hitSize =
+      nvh::align_up(groupHandleSize + static_cast<int>(sizeof(HitRecordBuffer)), groupSizeAligned);
+  uint32_t newSbtSize = rayGenSize + 2 * missSize + 3 * hitSize;
 ~~~~
 
 Then write the new SBT like this, where only Hit 1 has extra data.
@@ -238,14 +239,16 @@ Then write the new SBT like this, where only Hit 1 has extra data.
     memcpy(pBuffer, handles[2], groupHandleSize);  // Miss 1
     pBuffer += missSize;
 
-    memcpy(pBuffer, handles[3], groupHandleSize);  // Hit 0
-    pBuffer += groupHandleSize;
-    pBuffer += sizeof(HitRecordBuffer);  // No data
+    uint8_t* pHitBuffer = pBuffer;
+    memcpy(pHitBuffer, handles[3], groupHandleSize);  // Hit 0
+    // No data
+    pBuffer += hitSize;
 
-    memcpy(pBuffer, handles[4], groupHandleSize);  // Hit 1
-    pBuffer += groupHandleSize;
-    memcpy(pBuffer, &m_hitShaderRecord[0], sizeof(HitRecordBuffer));  // Hit 1 data
-    pBuffer += sizeof(HitRecordBuffer);
+    pHitBuffer = pBuffer;
+    memcpy(pHitBuffer, handles[4], groupHandleSize);  // Hit 1
+    pHitBuffer += groupHandleSize;
+    memcpy(pHitBuffer, &m_hitShaderRecord[0], sizeof(HitRecordBuffer));  // Hit 1 data
+    pBuffer += hitSize;
   }
 ~~~~
 
@@ -255,12 +258,23 @@ Then change the call to `m_alloc.createBuffer` to create the SBT buffer from `sb
   m_rtSBTBuffer = m_alloc.createBuffer(cmdBuf, sbtBuffer, vk::BufferUsageFlagBits::eRayTracingKHR);
 ~~~~
 
+
 ## `raytrace`
 
-Finally, since the size of the hit group is now larger than just the handle, we need to set the new value of the hit group stride in `HelloVulkan::raytrace`.
+Finally, since the size of the hit group is now larger than just the handle, 
+we need to set the new value of the hit group stride in `HelloVulkan::raytrace`.
 
 ~~~~ C++
-vk::DeviceSize hitGroupStride = progSize + sizeof(HitRecordBuffer);
+vk::DeviceSize hitGroupSize =
+    nvh::align_up(m_rtProperties.shaderGroupHandleSize + sizeof(HitRecordBuffer),
+                  m_rtProperties.shaderGroupBaseAlignment);
+
+
+std::array<Stride, 4> strideAddresses{
+    Stride{sbtAddress + 0u * groupSize, groupStride, groupSize * 1},      // raygen
+    Stride{sbtAddress + 1u * groupSize, groupStride, groupSize * 2},      // miss
+    Stride{sbtAddress + 3u * groupSize, hitGroupSize, hitGroupSize * 3},  // hit
+    Stride{0u, 0u, 0u}};                                                  // callable              
 ~~~~
 
 !!! Note:
@@ -316,10 +330,11 @@ The size of the SBT will now account for its 3 hit groups:
 Finally, we need to add the new entry as well at the end of the buffer, reusing the handle of the second Hit Group and setting a different color.
 
 ~~~~ C++
-    memcpy(pBuffer, handles[4], groupHandleSize);  // Hit 2
-    pBuffer += groupHandleSize;
-    memcpy(pBuffer, &m_hitShaderRecord[1], sizeof(HitRecordBuffer));  // Hit 2 data
-    pBuffer += sizeof(HitRecordBuffer);
+    pHitBuffer = pBuffer;
+    memcpy(pHitBuffer, handles[4], groupHandleSize);  // Hit 2
+    pHitBuffer += groupHandleSize;
+    memcpy(pHitBuffer, &m_hitShaderRecord[1], sizeof(HitRecordBuffer));  // Hit 2 data
+    pBuffer += hitSize;
 ~~~~
 
 !!! Warning

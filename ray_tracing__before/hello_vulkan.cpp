@@ -91,27 +91,23 @@ void HelloVulkan::setup(const vk::Instance&       instance,
 //--------------------------------------------------------------------------------------------------
 // Called at each frame to update the camera matrix
 //
-void HelloVulkan::updateUniformBuffer()
+void HelloVulkan::updateUniformBuffer(const vk::CommandBuffer& cmdBuf)
 {
-    const float aspectRatio = m_size.width / static_cast<float>(m_size.height);
+  const float aspectRatio = m_size.width / static_cast<float>(m_size.height);
 
-    CameraMatrices ubo = {};
-    ubo.view           = CameraManip.getMatrix();
-    ubo.proj           = nvmath::perspectiveVK(CameraManip.getFov(), aspectRatio, 0.1f, 1000.0f);
-    //ubo.proj[1][1] *= -1;  // Inverting Y for Vulkan
-    ubo.viewInverse  = nvmath::invert(ubo.view);
-    ubo.proj_inverse = nvmath::invert(ubo.proj);
-#if defined(NVVK_ALLOC_DEDICATED)
-    void* data = m_device.mapMemory(m_cameraMat.allocation, 0, sizeof(ubo));
-    memcpy(data, &ubo, sizeof(ubo));
-    m_device.unmapMemory(m_cameraMat.allocation);
-#elif defined(NVVK_ALLOC_DMA)
-    void* data = m_alloc.map(m_cameraMat);
-    memcpy(data, &ubo, sizeof(ubo));
-    m_alloc.unmap(m_cameraMat);
-#else
-    static_assert(false, "no NVVK_ALLOCATOR defined");
-#endif
+  CameraMatrices ubo = {};
+  ubo.view           = CameraManip.getMatrix();
+  ubo.proj           = nvmath::perspectiveVK(CameraManip.getFov(), aspectRatio, 0.1f, 1000.0f);
+  //ubo.proj[1][1] *= -1;  // Inverting Y for Vulkan
+  ubo.viewInverse = nvmath::invert(ubo.view);
+
+  cmdBuf.updateBuffer<CameraMatrices>(m_cameraMat.buffer, 0, ubo);
+
+  // Making sure the matrix buffer will be available
+  vk::MemoryBarrier mb{vk::AccessFlagBits::eTransferWrite, vk::AccessFlagBits::eShaderRead};
+  cmdBuf.pipelineBarrier(vk::PipelineStageFlagBits::eTransfer,
+                         vk::PipelineStageFlagBits::eVertexShader,
+                         vk::DependencyFlagBits::eDeviceGroup, {mb}, {}, {});
 }
 
 //--------------------------------------------------------------------------------------------------
@@ -199,35 +195,35 @@ void HelloVulkan::updateDescriptorSet()
 //
 void HelloVulkan::createGraphicsPipeline()
 {
-    using vkSS = vk::ShaderStageFlagBits;
+  using vkSS = vk::ShaderStageFlagBits;
 
-    vk::PushConstantRange pushConstantRanges = {vkSS::eVertex | vkSS::eFragment, 0,
-                                                sizeof(ObjPushConstant)};
+  vk::PushConstantRange pushConstantRanges = {vkSS::eVertex | vkSS::eFragment, 0,
+                                              sizeof(ObjPushConstant)};
 
-    // Creating the Pipeline Layout
-    vk::PipelineLayoutCreateInfo pipelineLayoutCreateInfo;
-    vk::DescriptorSetLayout      descSetLayout(m_descSetLayout);
-    pipelineLayoutCreateInfo.setSetLayoutCount(1);
-    pipelineLayoutCreateInfo.setPSetLayouts(&descSetLayout);
-    pipelineLayoutCreateInfo.setPushConstantRangeCount(1);
-    pipelineLayoutCreateInfo.setPPushConstantRanges(&pushConstantRanges);
-    m_pipelineLayout = m_device.createPipelineLayout(pipelineLayoutCreateInfo);
+  // Creating the Pipeline Layout
+  vk::PipelineLayoutCreateInfo pipelineLayoutCreateInfo;
+  vk::DescriptorSetLayout      descSetLayout(m_descSetLayout);
+  pipelineLayoutCreateInfo.setSetLayoutCount(1);
+  pipelineLayoutCreateInfo.setPSetLayouts(&descSetLayout);
+  pipelineLayoutCreateInfo.setPushConstantRangeCount(1);
+  pipelineLayoutCreateInfo.setPPushConstantRanges(&pushConstantRanges);
+  m_pipelineLayout = m_device.createPipelineLayout(pipelineLayoutCreateInfo);
 
-    // Creating the Pipeline
-    std::vector<std::string>                paths = defaultSearchPaths;
-    nvvk::GraphicsPipelineGeneratorCombined gpb(m_device, m_pipelineLayout, m_offscreenRenderPass);
-    gpb.depthStencilState.depthTestEnable = true;
-    gpb.addShader(nvh::loadFile("shaders/vert_shader.vert.spv", true, paths), vkSS::eVertex);
-    gpb.addShader(nvh::loadFile("shaders/frag_shader.frag.spv", true, paths), vkSS::eFragment);
-    gpb.addBindingDescription({0, sizeof(VertexObj)});
-    gpb.addAttributeDescriptions(std::vector<vk::VertexInputAttributeDescription>{
-        {0, 0, vk::Format::eR32G32B32Sfloat, offsetof(VertexObj, pos)},
-        {1, 0, vk::Format::eR32G32B32Sfloat, offsetof(VertexObj, nrm)},
-        {2, 0, vk::Format::eR32G32B32Sfloat, offsetof(VertexObj, color)},
-        {3, 0, vk::Format::eR32G32Sfloat, offsetof(VertexObj, texCoord)}});
+  // Creating the Pipeline
+  std::vector<std::string>                paths = defaultSearchPaths;
+  nvvk::GraphicsPipelineGeneratorCombined gpb(m_device, m_pipelineLayout, m_offscreenRenderPass);
+  gpb.depthStencilState.depthTestEnable = true;
+  gpb.addShader(nvh::loadFile("shaders/vert_shader.vert.spv", true, paths, true), vkSS::eVertex);
+  gpb.addShader(nvh::loadFile("shaders/frag_shader.frag.spv", true, paths, true), vkSS::eFragment);
+  gpb.addBindingDescription({0, sizeof(VertexObj)});
+  gpb.addAttributeDescriptions(std::vector<vk::VertexInputAttributeDescription>{
+      {0, 0, vk::Format::eR32G32B32Sfloat, offsetof(VertexObj, pos)},
+      {1, 0, vk::Format::eR32G32B32Sfloat, offsetof(VertexObj, nrm)},
+      {2, 0, vk::Format::eR32G32B32Sfloat, offsetof(VertexObj, color)},
+      {3, 0, vk::Format::eR32G32Sfloat, offsetof(VertexObj, texCoord)}});
 
-    m_graphicsPipeline = gpb.createPipeline();
-    m_debug.setObjectName(m_graphicsPipeline, "Graphics");
+  m_graphicsPipeline = gpb.createPipeline();
+  m_debug.setObjectName(m_graphicsPipeline, "Graphics");
 }
 
 //--------------------------------------------------------------------------------------------------
@@ -235,53 +231,50 @@ void HelloVulkan::createGraphicsPipeline()
 //
 void HelloVulkan::loadModel(const std::string& filename, nvmath::mat4f transform)
 {
-    using vkBU = vk::BufferUsageFlagBits;
+  using vkBU = vk::BufferUsageFlagBits;
 
-    ObjLoader loader;
-    loader.loadModel(filename);
+  LOGI("Loading File:  %s \n", filename.c_str());
+  ObjLoader loader;
+  loader.loadModel(filename);
 
-    // Converting from Srgb to linear
-    for (auto& m : loader.m_materials) {
-        m.ambient  = nvmath::pow(m.ambient, 2.2f);
-        m.diffuse  = nvmath::pow(m.diffuse, 2.2f);
-        m.specular = nvmath::pow(m.specular, 2.2f);
-    }
+  // Converting from Srgb to linear
+  for(auto& m : loader.m_materials)
+  {
+    m.ambient  = nvmath::pow(m.ambient, 2.2f);
+    m.diffuse  = nvmath::pow(m.diffuse, 2.2f);
+    m.specular = nvmath::pow(m.specular, 2.2f);
+  }
 
-    ObjInstance instance;
-    instance.objIndex    = static_cast<uint32_t>(m_objModel.size());
-    instance.transform   = transform;
-    instance.transformIT = nvmath::transpose(nvmath::invert(transform));
-    instance.txtOffset   = static_cast<uint32_t>(m_textures.size());
+  ObjInstance instance;
+  instance.objIndex    = static_cast<uint32_t>(m_objModel.size());
+  instance.transform   = transform;
+  instance.transformIT = nvmath::transpose(nvmath::invert(transform));
+  instance.txtOffset   = static_cast<uint32_t>(m_textures.size());
 
-    ObjModel model;
-    model.nbIndices  = static_cast<uint32_t>(loader.m_indices.size());
-    model.nbVertices = static_cast<uint32_t>(loader.m_vertices.size());
+  ObjModel model;
+  model.nbIndices  = static_cast<uint32_t>(loader.m_indices.size());
+  model.nbVertices = static_cast<uint32_t>(loader.m_vertices.size());
 
-    // Create the buffers on Device and copy vertices, indices and materials
-    nvvk::CommandPool cmdBufGet(m_device, m_graphicsQueueIndex);
-    vk::CommandBuffer cmdBuf = cmdBufGet.createCommandBuffer();
-    // VKRay: adds buffer usages as storage buffers.
-    model.vertexBuffer   = m_alloc.createBuffer(cmdBuf, loader.m_vertices,
-                                              vkBU::eVertexBuffer | vkBU::eStorageBuffer
-                                                  | vkBU::eShaderDeviceAddressKHR);
-    model.indexBuffer    = m_alloc.createBuffer(cmdBuf, loader.m_indices,
-                                             vkBU::eIndexBuffer | vkBU::eStorageBuffer
-                                                 | vkBU::eShaderDeviceAddressKHR);
-    model.matColorBuffer = m_alloc.createBuffer(cmdBuf, loader.m_materials, vkBU::eStorageBuffer);
-    model.matIndexBuffer = m_alloc.createBuffer(cmdBuf, loader.m_matIndx, vkBU::eStorageBuffer);
-    // Creates all textures found
-    createTextureImages(cmdBuf, loader.m_textures);
-    cmdBufGet.submitAndWait(cmdBuf);
-    m_alloc.finalizeAndReleaseStaging();
+  // Create the buffers on Device and copy vertices, indices and materials
+  nvvk::CommandPool cmdBufGet(m_device, m_graphicsQueueIndex);
+  vk::CommandBuffer cmdBuf = cmdBufGet.createCommandBuffer();
+  model.vertexBuffer       = m_alloc.createBuffer(cmdBuf, loader.m_vertices, vkBU::eVertexBuffer);
+  model.indexBuffer        = m_alloc.createBuffer(cmdBuf, loader.m_indices, vkBU::eIndexBuffer);
+  model.matColorBuffer     = m_alloc.createBuffer(cmdBuf, loader.m_materials, vkBU::eStorageBuffer);
+  model.matIndexBuffer     = m_alloc.createBuffer(cmdBuf, loader.m_matIndx, vkBU::eStorageBuffer);
+  // Creates all textures found
+  createTextureImages(cmdBuf, loader.m_textures);
+  cmdBufGet.submitAndWait(cmdBuf);
+  m_alloc.finalizeAndReleaseStaging();
 
-    std::string objNb = std::to_string(instance.objIndex);
-    m_debug.setObjectName(model.vertexBuffer.buffer, (std::string("vertex_" + objNb).c_str()));
-    m_debug.setObjectName(model.indexBuffer.buffer, (std::string("index_" + objNb).c_str()));
-    m_debug.setObjectName(model.matColorBuffer.buffer, (std::string("mat_" + objNb).c_str()));
-    m_debug.setObjectName(model.matIndexBuffer.buffer, (std::string("matIdx_" + objNb).c_str()));
+  std::string objNb = std::to_string(instance.objIndex);
+  m_debug.setObjectName(model.vertexBuffer.buffer, (std::string("vertex_" + objNb).c_str()));
+  m_debug.setObjectName(model.indexBuffer.buffer, (std::string("index_" + objNb).c_str()));
+  m_debug.setObjectName(model.matColorBuffer.buffer, (std::string("mat_" + objNb).c_str()));
+  m_debug.setObjectName(model.matIndexBuffer.buffer, (std::string("matIdx_" + objNb).c_str()));
 
-    m_objModel.emplace_back(model);
-    m_objInstance.emplace_back(instance);
+  m_objModel.emplace_back(model);
+  m_objInstance.emplace_back(instance);
 }
 
 
@@ -294,9 +287,9 @@ void HelloVulkan::createUniformBuffer()
     using vkBU = vk::BufferUsageFlagBits;
     using vkMP = vk::MemoryPropertyFlagBits;
 
-    m_cameraMat = m_alloc.createBuffer(sizeof(CameraMatrices), vkBU::eUniformBuffer,
-                                       vkMP::eHostVisible | vkMP::eHostCoherent);
-    m_debug.setObjectName(m_cameraMat.buffer, "cameraMat");
+  m_cameraMat = m_alloc.createBuffer(sizeof(CameraMatrices),
+                                     vkBU::eUniformBuffer | vkBU::eTransferDst, vkMP::eDeviceLocal);
+  m_debug.setObjectName(m_cameraMat.buffer, "cameraMat");
 }
 
 //--------------------------------------------------------------------------------------------------
@@ -323,24 +316,65 @@ void HelloVulkan::createSceneDescriptionBuffer()
 void HelloVulkan::createTextureImages(const vk::CommandBuffer&        cmdBuf,
                                       const std::vector<std::string>& textures)
 {
-    using vkIU = vk::ImageUsageFlagBits;
+  using vkIU = vk::ImageUsageFlagBits;
 
-    vk::SamplerCreateInfo samplerCreateInfo{
-        {}, vk::Filter::eLinear, vk::Filter::eLinear, vk::SamplerMipmapMode::eLinear};
-    samplerCreateInfo.setMaxLod(FLT_MAX);
-    vk::Format format = vk::Format::eR8G8B8A8Srgb;
+  vk::SamplerCreateInfo samplerCreateInfo{
+      {}, vk::Filter::eLinear, vk::Filter::eLinear, vk::SamplerMipmapMode::eLinear};
+  samplerCreateInfo.setMaxLod(FLT_MAX);
+  vk::Format format = vk::Format::eR8G8B8A8Srgb;
 
-    // If no textures are present, create a dummy one to accommodate the pipeline layout
-    if (textures.empty() && m_textures.empty()) {
-        nvvk::Texture texture;
+  // If no textures are present, create a dummy one to accommodate the pipeline layout
+  if(textures.empty() && m_textures.empty())
+  {
+    nvvk::Texture texture;
 
-        std::array<uint8_t, 4> color{255u, 255u, 255u, 255u};
-        vk::DeviceSize         bufferSize      = sizeof(color);
-        auto                   imgSize         = vk::Extent2D(1, 1);
-        auto                   imageCreateInfo = nvvk::makeImage2DCreateInfo(imgSize, format);
+    std::array<uint8_t, 4> color{255u, 255u, 255u, 255u};
+    vk::DeviceSize         bufferSize      = sizeof(color);
+    auto                   imgSize         = vk::Extent2D(1, 1);
+    auto                   imageCreateInfo = nvvk::makeImage2DCreateInfo(imgSize, format);
 
-        // Creating the dummy texure
-        nvvk::Image image = m_alloc.createImage(cmdBuf, bufferSize, color.data(), imageCreateInfo);
+    // Creating the dummy texture
+    nvvk::Image image = m_alloc.createImage(cmdBuf, bufferSize, color.data(), imageCreateInfo);
+    vk::ImageViewCreateInfo ivInfo = nvvk::makeImageViewCreateInfo(image.image, imageCreateInfo);
+    texture                        = m_alloc.createTexture(image, ivInfo, samplerCreateInfo);
+
+    // The image format must be in VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+    nvvk::cmdBarrierImageLayout(cmdBuf, texture.image, vk::ImageLayout::eUndefined,
+                                vk::ImageLayout::eShaderReadOnlyOptimal);
+    m_textures.push_back(texture);
+  }
+  else
+  {
+    // Uploading all images
+    for(const auto& texture : textures)
+    {
+      std::stringstream o;
+      int               texWidth, texHeight, texChannels;
+      o << "media/textures/" << texture;
+      std::string txtFile = nvh::findFile(o.str(), defaultSearchPaths, true);
+
+      stbi_uc* stbi_pixels =
+          stbi_load(txtFile.c_str(), &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
+
+      std::array<stbi_uc, 4> color{255u, 0u, 255u, 255u};
+
+      stbi_uc* pixels = stbi_pixels;
+      // Handle failure
+      if(!stbi_pixels)
+      {
+        texWidth = texHeight = 1;
+        texChannels          = 4;
+        pixels               = reinterpret_cast<stbi_uc*>(color.data());
+      }
+
+      vk::DeviceSize bufferSize = static_cast<uint64_t>(texWidth) * texHeight * sizeof(uint8_t) * 4;
+      auto           imgSize    = vk::Extent2D(texWidth, texHeight);
+      auto imageCreateInfo = nvvk::makeImage2DCreateInfo(imgSize, format, vkIU::eSampled, true);
+
+      {
+        nvvk::ImageDedicated image =
+            m_alloc.createImage(cmdBuf, bufferSize, pixels, imageCreateInfo);
+        nvvk::cmdGenerateMipmaps(cmdBuf, image.image, format, imgSize, imageCreateInfo.mipLevels);
         vk::ImageViewCreateInfo ivInfo =
             nvvk::makeImageViewCreateInfo(image.image, imageCreateInfo);
         texture = m_alloc.createTexture(image, ivInfo, samplerCreateInfo);
@@ -349,43 +383,9 @@ void HelloVulkan::createTextureImages(const vk::CommandBuffer&        cmdBuf,
         nvvk::cmdBarrierImageLayout(cmdBuf, texture.image, vk::ImageLayout::eUndefined,
                                     vk::ImageLayout::eShaderReadOnlyOptimal);
         m_textures.push_back(texture);
-    } else {
-        // Uploading all images
-        for (const auto& texture : textures) {
-            std::stringstream o;
-            int               texWidth, texHeight, texChannels;
-            o << "media/textures/" << texture;
-            std::string txtFile = nvh::findFile(o.str(), defaultSearchPaths);
+      }
 
-            stbi_uc* pixels =
-                stbi_load(txtFile.c_str(), &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
-
-            // Handle failure
-            if (!pixels) {
-                texWidth = texHeight = 1;
-                texChannels          = 4;
-                std::array<uint8_t, 4> color{255u, 0u, 255u, 255u};
-                pixels = reinterpret_cast<stbi_uc*>(color.data());
-            }
-
-            vk::DeviceSize bufferSize =
-                static_cast<uint64_t>(texWidth) * texHeight * sizeof(uint8_t) * 4;
-            auto imgSize = vk::Extent2D(texWidth, texHeight);
-            auto imageCreateInfo =
-                nvvk::makeImage2DCreateInfo(imgSize, format, vkIU::eSampled, true);
-
-            {
-                nvvk::Image image =
-                    m_alloc.createImage(cmdBuf, bufferSize, pixels, imageCreateInfo);
-                nvvk::cmdGenerateMipmaps(cmdBuf, image.image, format, imgSize,
-                                         imageCreateInfo.mipLevels);
-                vk::ImageViewCreateInfo ivInfo =
-                    nvvk::makeImageViewCreateInfo(image.image, imageCreateInfo);
-                nvvk::Texture texture = m_alloc.createTexture(image, ivInfo, samplerCreateInfo);
-
-                m_textures.push_back(texture);
-            }
-        }
+      stbi_image_free(stbi_pixels);
     }
 }
 
@@ -569,30 +569,29 @@ void HelloVulkan::createOffscreenRender()
 //
 void HelloVulkan::createPostPipeline()
 {
-    // Push constants in the fragment shader
-    vk::PushConstantRange pushConstantRanges = {vk::ShaderStageFlagBits::eFragment, 0,
-                                                sizeof(float)};
+  // Push constants in the fragment shader
+  vk::PushConstantRange pushConstantRanges = {vk::ShaderStageFlagBits::eFragment, 0, sizeof(float)};
 
-    // Creating the pipeline layout
-    vk::PipelineLayoutCreateInfo pipelineLayoutCreateInfo;
-    pipelineLayoutCreateInfo.setSetLayoutCount(1);
-    pipelineLayoutCreateInfo.setPSetLayouts(&m_postDescSetLayout);
-    pipelineLayoutCreateInfo.setPushConstantRangeCount(1);
-    pipelineLayoutCreateInfo.setPPushConstantRanges(&pushConstantRanges);
-    m_postPipelineLayout = m_device.createPipelineLayout(pipelineLayoutCreateInfo);
+  // Creating the pipeline layout
+  vk::PipelineLayoutCreateInfo pipelineLayoutCreateInfo;
+  pipelineLayoutCreateInfo.setSetLayoutCount(1);
+  pipelineLayoutCreateInfo.setPSetLayouts(&m_postDescSetLayout);
+  pipelineLayoutCreateInfo.setPushConstantRangeCount(1);
+  pipelineLayoutCreateInfo.setPPushConstantRanges(&pushConstantRanges);
+  m_postPipelineLayout = m_device.createPipelineLayout(pipelineLayoutCreateInfo);
 
-    // Pipeline: completely generic, no vertices
-    std::vector<std::string> paths = defaultSearchPaths;
+  // Pipeline: completely generic, no vertices
+  std::vector<std::string> paths = defaultSearchPaths;
 
-    nvvk::GraphicsPipelineGeneratorCombined pipelineGenerator(m_device, m_postPipelineLayout,
-                                                              m_renderPass);
-    pipelineGenerator.addShader(nvh::loadFile("shaders/passthrough.vert.spv", true, paths),
-                                vk::ShaderStageFlagBits::eVertex);
-    pipelineGenerator.addShader(nvh::loadFile("shaders/post.frag.spv", true, paths),
-                                vk::ShaderStageFlagBits::eFragment);
-    pipelineGenerator.rasterizationState.setCullMode(vk::CullModeFlagBits::eNone);
-    m_postPipeline = pipelineGenerator.createPipeline();
-    m_debug.setObjectName(m_postPipeline, "post");
+  nvvk::GraphicsPipelineGeneratorCombined pipelineGenerator(m_device, m_postPipelineLayout,
+                                                            m_renderPass);
+  pipelineGenerator.addShader(nvh::loadFile("shaders/passthrough.vert.spv", true, paths, true),
+                              vk::ShaderStageFlagBits::eVertex);
+  pipelineGenerator.addShader(nvh::loadFile("shaders/post.frag.spv", true, paths, true),
+                              vk::ShaderStageFlagBits::eFragment);
+  pipelineGenerator.rasterizationState.setCullMode(vk::CullModeFlagBits::eNone);
+  m_postPipeline = pipelineGenerator.createPipeline();
+  m_debug.setObjectName(m_postPipeline, "post");
 }
 
 //--------------------------------------------------------------------------------------------------

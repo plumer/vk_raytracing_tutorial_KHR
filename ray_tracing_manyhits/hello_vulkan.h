@@ -57,7 +57,7 @@ public:
   void createSceneDescriptionBuffer();
   void createTextureImages(const vk::CommandBuffer&        cmdBuf,
                            const std::vector<std::string>& textures);
-  void updateUniformBuffer();
+  void updateUniformBuffer(const vk::CommandBuffer& cmdBuf);
   void onResize(int /*w*/, int /*h*/) override;
   void destroyResources();
   void rasterize(const vk::CommandBuffer& cmdBuff);
@@ -133,18 +133,18 @@ public:
   vk::Format                  m_offscreenDepthFormat{vk::Format::eD32Sfloat};
 
   // #VKRay
-  void                             initRayTracing();
-  nvvk::RaytracingBuilderKHR::Blas objectToVkGeometryKHR(const ObjModel& model);
-  void                             createBottomLevelAS();
-  void                             createTopLevelAS();
-  void                             createRtDescriptorSet();
-  void                             updateRtDescriptorSet();
-  void                             createRtPipeline();
-  void                             createRtShaderBindingTable();
+  void                                  initRayTracing();
+  nvvk::RaytracingBuilderKHR::BlasInput objectToVkGeometryKHR(const ObjModel& model);
+  void                                  createBottomLevelAS();
+  void                                  createTopLevelAS();
+  void                                  createRtDescriptorSet();
+  void                                  updateRtDescriptorSet();
+  void                                  createRtPipeline();
+  void                                  createRtShaderBindingTable();
   void raytrace(const vk::CommandBuffer& cmdBuf, const nvmath::vec4f& clearColor);
 
 
-  vk::PhysicalDeviceRayTracingPropertiesKHR           m_rtProperties;
+  vk::PhysicalDeviceRayTracingPipelinePropertiesKHR   m_rtProperties;
   nvvk::RaytracingBuilderKHR                          m_rtBuilder;
   nvvk::DescriptorSetBindings                         m_rtDescSetLayoutBind;
   vk::DescriptorPool                                  m_rtDescPool;

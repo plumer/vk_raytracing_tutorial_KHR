@@ -32,7 +32,6 @@ extern std::vector<std::string> defaultSearchPaths;
 
 #define VMA_IMPLEMENTATION
 
-
 #define STB_IMAGE_IMPLEMENTATION
 #include "fileformats/stb_image.h"
 #include "obj_loader.h"
@@ -92,7 +91,7 @@ void HelloVulkan::setup(const vk::Instance&       instance,
 //--------------------------------------------------------------------------------------------------
 // Called at each frame to update the camera matrix
 //
-void HelloVulkan::updateUniformBuffer()
+void HelloVulkan::updateUniformBuffer(const vk::CommandBuffer& cmdBuf)
 {
   const float aspectRatio = m_size.width / static_cast<float>(m_size.height);
 
@@ -104,20 +103,15 @@ void HelloVulkan::updateUniformBuffer()
   // #VKRay
   ubo.projInverse = nvmath::invert(ubo.proj);
 
-#if defined(NVVK_ALLOC_DEDICATED)
-  void* data = m_device.mapMemory(m_cameraMat.allocation, 0, sizeof(CameraMatrices));
-  memcpy(data, &ubo, sizeof(ubo));
-  m_device.unmapMemory(m_cameraMat.allocation);
-#elif defined(NVVK_ALLOC_DMA)
-  void* data = m_memAllocator.map(m_cameraMat.allocation);
-  memcpy(data, &ubo, sizeof(ubo));
-  m_memAllocator.unmap(m_cameraMat.allocation);
-#elif defined(NVVK_ALLOC_VMA)
-  void* data;
-  vmaMapMemory(m_memAllocator, m_cameraMat.allocation, &data);
-  memcpy(data, &ubo, sizeof(ubo));
-  vmaUnmapMemory(m_memAllocator, m_cameraMat.allocation);
-#endif
+
+  cmdBuf.updateBuffer<CameraMatrices>(m_cameraMat.buffer, 0, ubo);
+
+  // Making sure the matrix buffer will be available
+  vk::MemoryBarrier mb{vk::AccessFlagBits::eTransferWrite, vk::AccessFlagBits::eShaderRead};
+  cmdBuf.pipelineBarrier(vk::PipelineStageFlagBits::eTransfer,
+                         vk::PipelineStageFlagBits::eVertexShader
+                             | vk::PipelineStageFlagBits::eAccelerationStructureBuildKHR,
+                         vk::DependencyFlagBits::eDeviceGroup, {mb}, {}, {});
 }
 
 //--------------------------------------------------------------------------------------------------
@@ -200,7 +194,7 @@ void HelloVulkan::updateDescriptorSet()
   std::vector<vk::DescriptorImageInfo> diit;
   for(auto& texture : m_textures)
   {
-    diit.push_back(texture.descriptor);
+    diit.emplace_back(texture.descriptor);
   }
   writes.emplace_back(m_descSetLayoutBind.makeWriteArray(m_descSet, 3, diit.data()));
 
@@ -234,8 +228,8 @@ void HelloVulkan::createGraphicsPipeline()
   std::vector<std::string>                paths = defaultSearchPaths;
   nvvk::GraphicsPipelineGeneratorCombined gpb(m_device, m_pipelineLayout, m_offscreen.renderPass());
   gpb.depthStencilState.depthTestEnable = true;
-  gpb.addShader(nvh::loadFile("shaders/vert_shader.vert.spv", true, paths), vkSS::eVertex);
-  gpb.addShader(nvh::loadFile("shaders/frag_shader.frag.spv", true, paths), vkSS::eFragment);
+  gpb.addShader(nvh::loadFile("shaders/vert_shader.vert.spv", true, paths, true), vkSS::eVertex);
+  gpb.addShader(nvh::loadFile("shaders/frag_shader.frag.spv", true, paths, true), vkSS::eFragment);
   gpb.addBindingDescription({0, sizeof(VertexObj)});
   gpb.addAttributeDescriptions(std::vector<vk::VertexInputAttributeDescription>{
       {0, 0, vk::Format::eR32G32B32Sfloat, offsetof(VertexObj, pos)},
@@ -254,6 +248,7 @@ void HelloVulkan::loadModel(const std::string& filename, nvmath::mat4f transform
 {
   using vkBU = vk::BufferUsageFlagBits;
 
+  LOGI("Loading File:  %s \n", filename.c_str());
   ObjLoader loader;
   loader.loadModel(filename);
 
@@ -280,10 +275,12 @@ void HelloVulkan::loadModel(const std::string& filename, nvmath::mat4f transform
   vk::CommandBuffer cmdBuf = cmdBufGet.createCommandBuffer();
   model.vertexBuffer =
       m_alloc.createBuffer(cmdBuf, loader.m_vertices,
-                           vkBU::eVertexBuffer | vkBU::eStorageBuffer | vkBU::eShaderDeviceAddress);
+                           vkBU::eVertexBuffer | vkBU::eStorageBuffer | vkBU::eShaderDeviceAddress
+                               | vkBU::eAccelerationStructureBuildInputReadOnlyKHR);
   model.indexBuffer =
       m_alloc.createBuffer(cmdBuf, loader.m_indices,
-                           vkBU::eIndexBuffer | vkBU::eStorageBuffer | vkBU::eShaderDeviceAddress);
+                           vkBU::eIndexBuffer | vkBU::eStorageBuffer | vkBU::eShaderDeviceAddress
+                               | vkBU::eAccelerationStructureBuildInputReadOnlyKHR);
   model.matColorBuffer = m_alloc.createBuffer(cmdBuf, loader.m_materials, vkBU::eStorageBuffer);
   model.matIndexBuffer = m_alloc.createBuffer(cmdBuf, loader.m_matIndx, vkBU::eStorageBuffer);
   // Creates all textures found
@@ -310,12 +307,8 @@ void HelloVulkan::createUniformBuffer()
   using vkBU = vk::BufferUsageFlagBits;
   using vkMP = vk::MemoryPropertyFlagBits;
 
-  m_cameraMat = m_alloc.createBuffer(sizeof(CameraMatrices), vkBU::eUniformBuffer,
-#ifndef NVVK_ALLOC_VMA
-                                     vkMP::eHostVisible | vkMP::eHostCoherent);
-#else
-                                     VMA_MEMORY_USAGE_CPU_TO_GPU);
-#endif  // _DEBUG
+  m_cameraMat = m_alloc.createBuffer(sizeof(CameraMatrices),
+                                     vkBU::eUniformBuffer | vkBU::eTransferDst, vkMP::eDeviceLocal);
   m_debug.setObjectName(m_cameraMat.buffer, "cameraMat");
 }
 
@@ -378,18 +371,20 @@ void HelloVulkan::createTextureImages(const vk::CommandBuffer&        cmdBuf,
       std::stringstream o;
       int               texWidth, texHeight, texChannels;
       o << "media/textures/" << texture;
-      std::string txtFile = nvh::findFile(o.str(), defaultSearchPaths);
+      std::string txtFile = nvh::findFile(o.str(), defaultSearchPaths, true);
 
-      stbi_uc* pixels =
+      stbi_uc* stbi_pixels =
           stbi_load(txtFile.c_str(), &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
 
+      std::array<stbi_uc, 4> color{255u, 0u, 255u, 255u};
+
+      stbi_uc* pixels = stbi_pixels;
       // Handle failure
-      if(!pixels)
+      if(!stbi_pixels)
       {
         texWidth = texHeight = 1;
         texChannels          = 4;
-        std::array<uint8_t, 4> color{255u, 0u, 255u, 255u};
-        pixels = reinterpret_cast<stbi_uc*>(color.data());
+        pixels               = reinterpret_cast<stbi_uc*>(color.data());
       }
 
       vk::DeviceSize bufferSize = static_cast<uint64_t>(texWidth) * texHeight * sizeof(uint8_t) * 4;
@@ -405,6 +400,8 @@ void HelloVulkan::createTextureImages(const vk::CommandBuffer&        cmdBuf,
 
         m_textures.push_back(texture);
       }
+
+      stbi_image_free(stbi_pixels);
     }
   }
 }
@@ -491,6 +488,7 @@ void HelloVulkan::onResize(int /*w*/, int /*h*/)
   m_offscreen.createFramebuffer(m_size);
   m_offscreen.updateDescriptorSet();
   m_raytrace.updateRtDescriptorSet(m_offscreen.colorTexture().descriptor.imageView);
+  resetFrame();
 }
 
 //--------------------------------------------------------------------------------------------------
@@ -535,12 +533,16 @@ void HelloVulkan::raytrace(const vk::CommandBuffer& cmdBuf, const nvmath::vec4f&
 void HelloVulkan::updateFrame()
 {
   static nvmath::mat4f refCamMatrix;
+  static float         refFov{CameraManip.getFov()};
 
-  auto& m = CameraManip.getMatrix();
-  if(memcmp(&refCamMatrix.a00, &m.a00, sizeof(nvmath::mat4f)) != 0)
+  const auto& m   = CameraManip.getMatrix();
+  const auto  fov = CameraManip.getFov();
+
+  if(memcmp(&refCamMatrix.a00, &m.a00, sizeof(nvmath::mat4f)) != 0 || refFov != fov)
   {
     resetFrame();
     refCamMatrix = m;
+    refFov       = fov;
   }
   m_pushConstants.frame++;
 }

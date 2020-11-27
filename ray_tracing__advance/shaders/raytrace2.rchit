@@ -37,7 +37,7 @@ layout(push_constant) uniform Constants
 }
 pushC;
 
-layout(location = 0) callableDataEXT rayLight cLight;
+layout(location = 3) callableDataEXT rayLight cLight;
 
 
 void main()
@@ -71,10 +71,10 @@ void main()
   }
 
   cLight.inHitPosition = worldPos;
-  executeCallableEXT(pushC.lightType, 0);
+  executeCallableEXT(pushC.lightType, 3);
 
   // Material of the object
-  WaveFrontMaterial mat = materials[gl_InstanceCustomIndexEXT].m[impl.matId];
+  WaveFrontMaterial mat = materials[nonuniformEXT(gl_InstanceCustomIndexEXT)].m[impl.matId];
 
 
   // Diffuse

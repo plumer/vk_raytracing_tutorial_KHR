@@ -1,3 +1,4 @@
+
 struct GltfMaterial
 {
   int shadingModel;  // 0: metallic-roughness, 1: specular-glossiness

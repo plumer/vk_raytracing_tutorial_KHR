@@ -57,7 +57,7 @@ public:
   void createSceneDescriptionBuffer();
   void createTextureImages(const vk::CommandBuffer&        cmdBuf,
                            const std::vector<std::string>& textures);
-  void updateUniformBuffer();
+  void updateUniformBuffer(const vk::CommandBuffer& cmdBuf);
   void onResize(int /*w*/, int /*h*/) override;
   void destroyResources();
   void rasterize(const vk::CommandBuffer& cmdBuff);
@@ -132,11 +132,11 @@ public:
   vk::Format                  m_offscreenDepthFormat{vk::Format::eD32Sfloat};
 
   // #VKRay
-  void                             initRayTracing();
-  nvvk::RaytracingBuilderKHR::Blas objectToVkGeometryKHR(const ObjModel& model);
-  void                             createBottomLevelAS();
-  void                             createTopLevelAS();
+  void                                  initRayTracing();
+  nvvk::RaytracingBuilderKHR::BlasInput objectToVkGeometryKHR(const ObjModel& model);
+  void                                  createBottomLevelAS();
+  void                                  createTopLevelAS();
 
-  vk::PhysicalDeviceRayTracingPropertiesKHR m_rtProperties;
-  nvvk::RaytracingBuilderKHR                m_rtBuilder;
+  vk::PhysicalDeviceRayTracingPipelinePropertiesKHR m_rtProperties;
+  nvvk::RaytracingBuilderKHR                        m_rtBuilder;
 };

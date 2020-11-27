@@ -10,7 +10,7 @@ hitAttributeEXT vec2 attribs;
 
 // clang-format off
 layout(location = 0) rayPayloadInEXT hitPayload prd;
-layout(location = 1) rayPayloadEXT bool isShadowed;
+layout(location = 1) rayPayloadEXT shadowPayload prdShadow;
 
 layout(binding = 0, set = 0) uniform accelerationStructureEXT topLevelAS;
 
@@ -40,13 +40,13 @@ void main()
   uint objId = scnDesc.i[gl_InstanceID].objId;
 
   // Indices of the triangle
-  ivec3 ind = ivec3(indices[objId].i[3 * gl_PrimitiveID + 0],   //
-                    indices[objId].i[3 * gl_PrimitiveID + 1],   //
-                    indices[objId].i[3 * gl_PrimitiveID + 2]);  //
+  ivec3 ind = ivec3(indices[nonuniformEXT(objId)].i[3 * gl_PrimitiveID + 0],   //
+                    indices[nonuniformEXT(objId)].i[3 * gl_PrimitiveID + 1],   //
+                    indices[nonuniformEXT(objId)].i[3 * gl_PrimitiveID + 2]);  //
   // Vertex of the triangle
-  Vertex v0 = vertices[objId].v[ind.x];
-  Vertex v1 = vertices[objId].v[ind.y];
-  Vertex v2 = vertices[objId].v[ind.z];
+  Vertex v0 = vertices[nonuniformEXT(objId)].v[ind.x];
+  Vertex v1 = vertices[nonuniformEXT(objId)].v[ind.y];
+  Vertex v2 = vertices[nonuniformEXT(objId)].v[ind.z];
 
   const vec3 barycentrics = vec3(1.0 - attribs.x - attribs.y, attribs.x, attribs.y);
 
@@ -79,8 +79,8 @@ void main()
   }
 
   // Material of the object
-  int               matIdx = matIndex[objId].i[gl_PrimitiveID];
-  WaveFrontMaterial mat    = materials[objId].m[matIdx];
+  int               matIdx = matIndex[nonuniformEXT(objId)].i[gl_PrimitiveID];
+  WaveFrontMaterial mat    = materials[nonuniformEXT(objId)].m[matIdx];
 
 
   // Diffuse
@@ -90,7 +90,7 @@ void main()
     uint txtId = mat.textureId + scnDesc.i[gl_InstanceID].txtOffset;
     vec2 texCoord =
         v0.texCoord * barycentrics.x + v1.texCoord * barycentrics.y + v2.texCoord * barycentrics.z;
-    diffuse *= texture(textureSamplers[txtId], texCoord).xyz;
+    diffuse *= texture(textureSamplers[nonuniformEXT(txtId)], texCoord).xyz;
   }
 
   vec3  specular    = vec3(0);
@@ -104,7 +104,8 @@ void main()
     vec3  origin = gl_WorldRayOriginEXT + gl_WorldRayDirectionEXT * gl_HitTEXT;
     vec3  rayDir = L;
     uint  flags  = gl_RayFlagsSkipClosestHitShaderEXT;
-    isShadowed   = true;
+    prdShadow.isHit = true;
+    prdShadow.seed  = prd.seed;
     traceRayEXT(topLevelAS,  // acceleration structure
                 flags,       // rayFlags
                 0xFF,        // cullMask
@@ -117,8 +118,9 @@ void main()
                 tMax,        // ray max range
                 1            // payload (location = 1)
     );
+    prd.seed = prdShadow.seed;
 
-    if(isShadowed)
+    if(prdShadow.isHit)
     {
       attenuation = 0.3;
     }

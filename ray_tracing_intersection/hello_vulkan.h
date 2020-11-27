@@ -26,18 +26,14 @@
  */
 #pragma once
 
-#include "types.h"
-
 #define NVVK_ALLOC_DEDICATED
+#include "nvvk/allocator_vk.hpp"
+#include "nvvk/appbase_vkpp.hpp"
 #include "nvvk/debug_util_vk.hpp"
-#include "vk_appbase.h"
-#include "vk_memory.h"
-#include "vk_raytrace.hpp"
-#include "vk_utils.h"
-// #VKRay
-#include "vk_raytrace.hpp"
+#include "nvvk/descriptorsets_vk.hpp"
 
-#include <nvh/gltfscene.hpp>
+// #VKRay
+#include "nvvk/raytraceKHR_vk.hpp"
 
 //--------------------------------------------------------------------------------------------------
 // Simple rasterizer of OBJ objects
@@ -46,183 +42,145 @@
 // - Rendering is done in an offscreen framebuffer
 // - The image of the framebuffer is displayed in post-process in a full-screen quad
 //
-class HelloVulkan : public vkpbr::AppBase
+class HelloVulkan : public nvvk::AppBase
 {
-  public:
-    HelloVulkan() = default;
-    void Setup(const vk::Instance& instance, const vk::Device& device,
-               const vk::PhysicalDevice& physicalDevice, u32 queueFamily) override;
-    void BuildDescriptorSetLayout();
-    void BuildGraphicsPipeline();
-    void LoadModel(const std::string& filename, glm::mat4 transform = glm::mat4(1));
+public:
+  void setup(const vk::Instance&       instance,
+             const vk::Device&         device,
+             const vk::PhysicalDevice& physicalDevice,
+             uint32_t                  queueFamily) override;
+  void createDescriptorSetLayout();
+  void createGraphicsPipeline();
+  void loadModel(const std::string& filename, nvmath::mat4f transform = nvmath::mat4f(1));
+  void updateDescriptorSet();
+  void createUniformBuffer();
+  void createSceneDescriptionBuffer();
+  void createTextureImages(const vk::CommandBuffer&        cmdBuf,
+                           const std::vector<std::string>& textures);
+  void updateUniformBuffer(const vk::CommandBuffer& cmdBuf);
+  void onResize(int /*w*/, int /*h*/) override;
+  void destroyResources();
+  void rasterize(const vk::CommandBuffer& cmdBuff);
 
-    // Reads a gltf file and writes the scene data to buffers.
-    void LoadGltfModel(const std::string& filename, glm::mat4 transform = glm::mat4(1.0f));
-    void UpdateDescriptorSet();
-    void BuildUniformBuffer();
-    void BuildSceneDescriptionBuffer();
-    void BuildTextureImages(const vk::CommandBuffer&        cmdBuf,
-                            const std::vector<std::string>& textures);
+  // The OBJ model
+  struct ObjModel
+  {
+    uint32_t     nbIndices{0};
+    uint32_t     nbVertices{0};
+    nvvk::Buffer vertexBuffer;    // Device buffer of all 'Vertex'
+    nvvk::Buffer indexBuffer;     // Device buffer of the indices forming triangles
+    nvvk::Buffer matColorBuffer;  // Device buffer of array of 'Wavefront material'
+    nvvk::Buffer matIndexBuffer;  // Device buffer of array of 'Wavefront material'
+  };
 
-    void UpdateUniformBuffer();
-    void WindowResizeCallback(int /*w*/, int /*h*/) override;
-    void destroyResources();
-    void rasterize(const vk::CommandBuffer& cmdBuff);
+  // Instance of the OBJ
+  struct ObjInstance
+  {
+    uint32_t      objIndex{0};     // Reference to the `m_objModel`
+    uint32_t      txtOffset{0};    // Offset in `m_textures`
+    nvmath::mat4f transform{1};    // Position of the instance
+    nvmath::mat4f transformIT{1};  // Inverse transpose
+  };
 
-    // The OBJ model
-    struct ObjModel {
-        uint32_t                  nbIndices{0};
-        uint32_t                  nbVertices{0};
-        vkpbr::UniqueMemoryBuffer vertexBuffer;    // Device buffer of all 'Vertex'
-        vkpbr::UniqueMemoryBuffer indexBuffer;     // Device buffer of the indices forming triangles
-        vkpbr::UniqueMemoryBuffer matColorBuffer;  // Device buffer of array of 'Wavefront material'
-        vkpbr::UniqueMemoryBuffer matIndexBuffer;  // Device buffer of array of 'Wavefront material'
-    };
+  // Information pushed at each draw call
+  struct ObjPushConstant
+  {
+    nvmath::vec3f lightPosition{10.f, 55.f, 8.f};
+    int           instanceId{0};  // To retrieve the transformation matrix
+    float         lightIntensity{1000.f};
+    int           lightType{0};  // 0: point, 1: infinite
+  };
+  ObjPushConstant m_pushConstant;
 
+  // Array of objects and instances in the scene
+  std::vector<ObjModel>    m_objModel;
+  std::vector<ObjInstance> m_objInstance;
 
-    // Instance of the OBJ
-    struct ObjInstance {
-        uint32_t  objIndex{0};     // Reference to the `m_objModel`
-        uint32_t  txtOffset{0};    // Offset in `m_textures`
-        glm::mat4 transform{1};    // Position of the instance
-        glm::mat4 transformIT{1};  // Inverse transpose
-        glm::mat4 dummy;
-    };
+  // Graphic pipeline
+  vk::PipelineLayout          m_pipelineLayout;
+  vk::Pipeline                m_graphicsPipeline;
+  nvvk::DescriptorSetBindings m_descSetLayoutBind;
+  vk::DescriptorPool          m_descPool;
+  vk::DescriptorSetLayout     m_descSetLayout;
+  vk::DescriptorSet           m_descSet;
 
-    // Information pushed at each draw call
-    struct ObjPushConstant {
-        glm::vec3 lightPosition{10.f, 15.f, 8.f};
-        int       instanceId{0};  // To retrieve the transformation matrix
-        float     lightIntensity{100.f};
-        int       lightType{0};  // 0: point, 1: infinite
-        int       materialId = 0;
-    };
-    ObjPushConstant m_pushConstant;
+  nvvk::Buffer               m_cameraMat;  // Device-Host of the camera matrices
+  nvvk::Buffer               m_sceneDesc;  // Device buffer of the OBJ instances
+  std::vector<nvvk::Texture> m_textures;   // vector of all textures of the scene
 
-    // Array of objects and instances in the scene
-    std::vector<ObjModel>    m_objModel;
-    std::vector<ObjInstance> m_objInstance;
+  nvvk::AllocatorDedicated m_alloc;  // Allocator for buffer, images, acceleration structures
+  nvvk::DebugUtil          m_debug;  // Utility to name objects
 
-    // Graphic pipeline
-    vk::PipelineLayout           m_pipelineLayout;
-    vk::Pipeline                 m_graphicsPipeline;
-    vkpbr::DescriptorSetBindings DS_layout_bindings_;
-    vk::DescriptorPool           m_descPool;
-    vk::DescriptorSetLayout      m_descSetLayout;
-    vk::DescriptorSet            m_descSet;
+  // #Post
+  void createOffscreenRender();
+  void createPostPipeline();
+  void createPostDescriptor();
+  void updatePostDescriptorSet();
+  void drawPost(vk::CommandBuffer cmdBuf);
 
-    vkpbr::UniqueMemoryBuffer m_cameraMat;  // Device-Host of the camera matrices
-    vkpbr::UniqueMemoryBuffer m_sceneDesc;  // Device buffer of the OBJ instances
-    // std::vector<nvvk::Texture> m_textures;   // vector of all textures of the scene
-    std::vector<vkpbr::UniqueMemoryTexture> m_textures;
+  nvvk::DescriptorSetBindings m_postDescSetLayoutBind;
+  vk::DescriptorPool          m_postDescPool;
+  vk::DescriptorSetLayout     m_postDescSetLayout;
+  vk::DescriptorSet           m_postDescSet;
+  vk::Pipeline                m_postPipeline;
+  vk::PipelineLayout          m_postPipelineLayout;
+  vk::RenderPass              m_offscreenRenderPass;
+  vk::Framebuffer             m_offscreenFramebuffer;
+  nvvk::Texture               m_offscreenColor;
+  vk::Format                  m_offscreenColorFormat{vk::Format::eR32G32B32A32Sfloat};
+  nvvk::Texture               m_offscreenDepth;
+  vk::Format                  m_offscreenDepthFormat{vk::Format::eD32Sfloat};
 
-    // nvvk::AllocatorDedicated     m_alloc;  // Allocator for buffer, images, acceleration
-    // structures
-    vkpbr::UniqueMemoryAllocator allocator_;
-    nvvk::DebugUtil              m_debug;  // Utility to name objects
-
-    // #Post
-    void createOffscreenRender();
-    void createPostPipeline();
-    void createPostDescriptor();
-    void updatePostDescriptorSet();
-    void drawPost(vk::CommandBuffer cmdBuf);
-
-    vkpbr::DescriptorSetBindings post_DS_layout_bindings_;
-    vk::DescriptorPool           m_postDescPool;
-    vk::DescriptorSetLayout      m_postDescSetLayout;
-    vk::DescriptorSet            m_postDescSet;
-    vk::Pipeline                 m_postPipeline;
-    vk::PipelineLayout           m_postPipelineLayout;
-    vk::RenderPass               m_offscreenRenderPass;
-    vk::Framebuffer              m_offscreenFramebuffer;
-    vkpbr::UniqueMemoryTexture   m_offscreenColor;
-    vk::Format                   m_offscreenColorFormat{vk::Format::eR32G32B32A32Sfloat};
-    vkpbr::UniqueMemoryTexture   m_offscreenDepth;
-    vk::Format                   m_offscreenDepthFormat{vk::Format::eD32Sfloat};
-
-    // Binding indices for the regular descriptor set.
-    enum DSBindings {
-        kDsbCameraMatrices = 0,
-        kDsbVertices,
-        kDsbNormals,
-        kDsbTexcoords,
-        kDsbIndices,
-        kDsbMaterials,
-        kDsbMatrices,
-        kDsbTextures
-    };
-    // Binding indices for the ray tracing descriptor set.
-    enum RtDSBindings { kRtDsbAccelStruct = 0, kRtDsbOutputImage, kRtDsbPrimInfo };
-
-    // #VKRay
-    void                              initRayTracing();
-    vkpbr::RaytracingBuilderKHR::Blas objectToVkGeometryKHR(const ObjModel& model);
-    vkpbr::RaytracingBuilderKHR::Blas PrimitiveToGeometryKHR(const nvh::GltfPrimMesh& prim);
-
-    // Creates bottom level accel structure for each model in m_objModel and glTF scene.
-    void createBottomLevelAS();
-    void createTopLevelAS();
-    void createRtDescriptorSet();
-    void updateRtDescriptorSet();
-    void createRtPipeline();
-    void createRtShaderBindingTable();
-    void raytrace(const vk::CommandBuffer& cmdBuf, const glm::vec4& clearColor);
-
-    struct RtPrimitiveLookup {
-        u32 index_offset   = 0;
-        u32 vertex_offset  = 0;
-        i32 material_index = 0;
-    };
+  // #VKRay
+  void                                  initRayTracing();
+  nvvk::RaytracingBuilderKHR::BlasInput objectToVkGeometryKHR(const ObjModel& model);
+  void                                  createBottomLevelAS();
+  void                                  createTopLevelAS();
+  void                                  createRtDescriptorSet();
+  void                                  updateRtDescriptorSet();
+  void                                  createRtPipeline();
+  void                                  createRtShaderBindingTable();
+  void raytrace(const vk::CommandBuffer& cmdBuf, const nvmath::vec4f& clearColor);
 
 
-    vk::PhysicalDeviceRayTracingPropertiesKHR           m_rtProperties;
-    vkpbr::RaytracingBuilderKHR                         m_rtBuilder;
-    vkpbr::DescriptorSetBindings                        rt_DS_layout_bindings_;
-    vk::DescriptorPool                                  m_rtDescPool;
-    vk::DescriptorSetLayout                             m_rtDescSetLayout;
-    vk::DescriptorSet                                   m_rtDescSet;
-    std::vector<vk::RayTracingShaderGroupCreateInfoKHR> m_rtShaderGroups;
-    vk::PipelineLayout                                  m_rtPipelineLayout;
-    vk::Pipeline                                        m_rtPipeline;
-    vkpbr::UniqueMemoryBuffer                           m_rtSBTBuffer;
+  vk::PhysicalDeviceRayTracingPipelinePropertiesKHR   m_rtProperties;
+  nvvk::RaytracingBuilderKHR                          m_rtBuilder;
+  nvvk::DescriptorSetBindings                         m_rtDescSetLayoutBind;
+  vk::DescriptorPool                                  m_rtDescPool;
+  vk::DescriptorSetLayout                             m_rtDescSetLayout;
+  vk::DescriptorSet                                   m_rtDescSet;
+  std::vector<vk::RayTracingShaderGroupCreateInfoKHR> m_rtShaderGroups;
+  vk::PipelineLayout                                  m_rtPipelineLayout;
+  vk::Pipeline                                        m_rtPipeline;
+  nvvk::Buffer                                        m_rtSBTBuffer;
 
-    struct GltfSceneData {
-        vkpbr::UniqueMemoryBuffer vertex_buffer;
-        vkpbr::UniqueMemoryBuffer index_buffer;
-        vkpbr::UniqueMemoryBuffer normal_buffer;
-        vkpbr::UniqueMemoryBuffer uv_buffer;
-        vkpbr::UniqueMemoryBuffer mtl_buffer;
-        vkpbr::UniqueMemoryBuffer matrix_buffer;
-        vkpbr::UniqueMemoryBuffer rt_prim_lookup_buffer;
-    } scene_data_;
-    nvh::GltfScene gltf_scene_;
-    // TODO: Reads a gltf model and loads all images as textures.
-    void BuildTextureImages(const vk::CommandBuffer& cmd_buffer, tinygltf::Model& gltf_model);
+  struct RtPushConstant
+  {
+    nvmath::vec4f clearColor;
+    nvmath::vec3f lightPosition;
+    float         lightIntensity;
+    int           lightType;
+  } m_rtPushConstants;
 
 
-    struct RtPushConstant {
-        glm::vec4 clearColor;
-        glm::vec3 lightPosition;
-        float     lightIntensity = 0;
-        int       lightType      = 0;
-    } m_rtPushConstants;
+  struct Sphere
+  {
+    nvmath::vec3f center;
+    float         radius;
+  };
 
+  struct Aabb
+  {
+    nvmath::vec3f minimum;
+    nvmath::vec3f maximum;
+  };
 
-    struct Sphere {
-        glm::vec3 center;
-        float     radius;
-    };
+  nvvk::RaytracingBuilderKHR::BlasInput sphereToVkGeometryKHR();
 
-    struct Aabb {
-        glm::vec3 minimum;
-        glm::vec3 maximum;
-    };
-    vkpbr::RaytracingBuilderKHR::Blas sphereToVkGeometryKHR();
-    std::vector<Sphere>               m_spheres;                // All spheres
-    vkpbr::UniqueMemoryBuffer         m_spheresBuffer;          // Buffer holding the spheres
-    vkpbr::UniqueMemoryBuffer         m_spheresAabbBuffer;      // Buffer of all Aabb
-    vkpbr::UniqueMemoryBuffer         m_spheresMatColorBuffer;  // Multiple materials
-    vkpbr::UniqueMemoryBuffer m_spheresMatIndexBuffer;  // Define which sphere uses which material
-    void                      createSpheres();
+  std::vector<Sphere> m_spheres;                // All spheres
+  nvvk::Buffer        m_spheresBuffer;          // Buffer holding the spheres
+  nvvk::Buffer        m_spheresAabbBuffer;      // Buffer of all Aabb
+  nvvk::Buffer        m_spheresMatColorBuffer;  // Multiple materials
+  nvvk::Buffer        m_spheresMatIndexBuffer;  // Define which sphere uses which material
+  void                createSpheres(uint32_t nbSpheres);
 };
