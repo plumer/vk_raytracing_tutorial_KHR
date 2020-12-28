@@ -1,104 +1,14 @@
 #version 460
 #extension GL_EXT_ray_tracing : require
 #extension GL_GOOGLE_include_directive : enable
-<<<<<<< HEAD
-#extension GL_ARB_shader_clock : enable
-#include "raycommon.glsl"
-#include "sampling.glsl"
-
-layout(binding = 0, set = 0) uniform accelerationStructureEXT ds_top_level_AS;
-layout(binding = 1, set = 0, rgba32f) uniform image2D ds_image;
-
-layout(location = 0) rayPayloadEXT hitPayload ray_payload;
-
-layout(binding = 0, set = 1) uniform CameraProperties
-{
-    mat4 view;
-    mat4 proj;
-    mat4 viewInverse;
-    mat4 projInverse;
-}
-ds_camera;
-
-layout(push_constant) uniform Constants
-{
-    vec4  clearColor;
-    vec3  lightPosition;
-    float lightIntensity;
-    int   lightType;
-
-    int frame;
-}
-pushC;
-
-void main()
-{
-    // Initializes the random number.
-    uint rng_seed =
-        TinyEncryption(gl_LaunchIDEXT.y * gl_LaunchSizeEXT.x + gl_LaunchIDEXT.x, int(clockARB()));
-
-    const vec2 pixelCenter = vec2(gl_LaunchIDEXT.xy) + vec2(0.5);
-    const vec2 jitter = vec2(RandF32(rng_seed) - 0.5, RandF32(rng_seed) - 0.5);
-    const vec2 inUV        = (pixelCenter + jitter) / vec2(gl_LaunchSizeEXT.xy);
-    vec2       d           = inUV * 2.0 - 1.0;
-
-    vec4 origin    = ds_camera.viewInverse * vec4(0, 0, 0, 1);
-    vec4 target    = ds_camera.projInverse * vec4(d.x, d.y, 1, 1);
-    vec4 direction = ds_camera.viewInverse * vec4(normalize(target.xyz), 0);
-
-    uint  rayFlags = gl_RayFlagsOpaqueEXT;
-    float tMin     = 0.001;
-    float tMax     = 10000.0;
-
-    ray_payload.hitValue      = vec3(0);
-    ray_payload.seed          = rng_seed;
-    ray_payload.depth         = 0;
-    ray_payload.ray_origin    = origin.xyz;
-    ray_payload.ray_direction = direction.xyz;
-    ray_payload.bsdf_weight   = vec3(0);
-
-    // Records the overall radiance on the first half of the eye->light tracing path.
-    //
-    // eye -> isect -> ... -> isect -> current isect -> isect -> ... -> isect -> light
-    //  |                                     |
-    //  +-------------------------------------+
-    // Computes the factor affected by BSDF on every surface interaction so far.
-    vec3 radiance = vec3(0, 0, 0);
-    vec3 weight   = vec3(1, 1, 1);
-    
-    // Uses a member in the payload as the loop iterator, making it possible to be modified in
-    // other shaders (like rmiss).
-    for (; ray_payload.depth < 10; ++ray_payload.depth) {
-        // Traces along a path. Surface ray scattering is computed in closest-hit shaders and
-        // returned in ray_payload.
-        traceRayEXT(ds_top_level_AS, rayFlags, /*cullmask=*/0xFF,  //
-                    0, 0, 0,  // sbt record offset and stride, miss index
-                    // ray geometry and t-limits
-                    ray_payload.ray_origin, tMin, ray_payload.ray_direction, tMax,
-                    0  // ray_payload
-        );
-
-        radiance += ray_payload.hitValue * weight;
-        weight *= ray_payload.bsdf_weight;
-    }
-
-    if (pushC.frame > 0) {
-        float a = 1.0f / float(pushC.frame + 1);
-        vec3 old_color = imageLoad(ds_image, ivec2(gl_LaunchIDEXT.xy)).xyz;
-        imageStore(ds_image, ivec2(gl_LaunchIDEXT.xy), vec4(mix(old_color, radiance, a), 1.f));
-    } else {
-        imageStore(ds_image, ivec2(gl_LaunchIDEXT.xy), vec4(radiance, 1.0));
-    }
-=======
-#include "binding.glsl"
 #include "raycommon.glsl"
 
-layout(set = 0, binding = 0) uniform accelerationStructureEXT topLevelAS;
-layout(set = 0, binding = 1, rgba32f) uniform image2D image;
+layout(binding = 0, set = 0) uniform accelerationStructureEXT topLevelAS;
+layout(binding = 1, set = 0, rgba32f) uniform image2D image;
 
 layout(location = 0) rayPayloadEXT hitPayload prd;
 
-layout(set = 1, binding = B_CAMERA) uniform CameraProperties
+layout(binding = 0, set = 1) uniform CameraProperties
 {
   mat4 view;
   mat4 proj;
@@ -135,5 +45,4 @@ void main()
   );
 
   imageStore(image, ivec2(gl_LaunchIDEXT.xy), vec4(prd.hitValue, 1.0));
->>>>>>> b7ba7d4fdc4128cefb7ab1d6097cc6d21c37d817
 }

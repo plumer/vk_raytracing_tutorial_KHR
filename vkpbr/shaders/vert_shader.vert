@@ -3,19 +3,10 @@
 #extension GL_EXT_scalar_block_layout : enable
 #extension GL_GOOGLE_include_directive : enable
 
-<<<<<<< HEAD
 #include "wavefront.glsl"
-#include "bindings.glsl"
-// clang-format off
-layout(binding = 2, set = 0, scalar) buffer ScnDesc { sceneDesc i[]; } scnDesc;
-layout(binding = kDsbMatrices, set = 0) readonly buffer Matrix {
-  mat4 matrices[];};
-=======
-#include "binding.glsl"
 
 // clang-format off
-layout( set = 0, binding = B_MATRICES) readonly buffer _Matrix { mat4 matrices[]; };
->>>>>>> b7ba7d4fdc4128cefb7ab1d6097cc6d21c37d817
+layout(binding = 2, set = 0, scalar) buffer ScnDesc { sceneDesc i[]; } scnDesc;
 // clang-format on
 
 layout(binding = 0) uniform UniformBufferObject
@@ -32,17 +23,13 @@ layout(push_constant) uniform shaderInformation
   uint  instanceId;
   float lightIntensity;
   int   lightType;
-<<<<<<< HEAD
-  int      materialId ;
-=======
-  int materialId;
->>>>>>> b7ba7d4fdc4128cefb7ab1d6097cc6d21c37d817
 }
 pushC;
 
 layout(location = 0) in vec3 inPosition;
 layout(location = 1) in vec3 inNormal;
-layout(location = 2) in vec2 inTexCoord;
+layout(location = 2) in vec3 inColor;
+layout(location = 3) in vec2 inTexCoord;
 
 
 //layout(location = 0) flat out int matIndex;
@@ -59,14 +46,8 @@ out gl_PerVertex
 
 void main()
 {
-<<<<<<< HEAD
-  // mat4 objMatrix   = scnDesc.i[pushC.instanceId].transfo;
-  // mat4 objMatrixIT = scnDesc.i[pushC.instanceId].transfoIT;
-  mat4 objMatrix = matrices[pushC.instanceId];
-=======
-  mat4 objMatrix   = matrices[pushC.instanceId];
->>>>>>> b7ba7d4fdc4128cefb7ab1d6097cc6d21c37d817
-  mat4 objMatrixIT = transpose(inverse(objMatrix));
+  mat4 objMatrix   = scnDesc.i[pushC.instanceId].transfo;
+  mat4 objMatrixIT = scnDesc.i[pushC.instanceId].transfoIT;
 
   vec3 origin = vec3(ubo.viewI * vec4(0, 0, 0, 1));
 

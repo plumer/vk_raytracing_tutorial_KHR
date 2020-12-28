@@ -51,5 +51,5 @@ add_subdirectory(ray_tracing_jitter_cam)
 add_subdirectory(ray_tracing_manyhits)
 add_subdirectory(ray_tracing_rayquery)
 add_subdirectory(ray_tracing_reflections)
-add_subdirectory(ray_tracing_gltf)
+add_subdirectory(vkpbr)
 
