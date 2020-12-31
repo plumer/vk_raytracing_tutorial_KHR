@@ -39,11 +39,13 @@ VULKAN_HPP_DEFAULT_DISPATCH_LOADER_DYNAMIC_STORAGE
 #include "hello_vulkan.h"
 #include "imgui_camera_widget.h"
 #include "nvh/cameramanipulator.hpp"
-#include "nvh/fileoperations.hpp"
+#include "io.h"
+//#include "nvh/fileoperations.hpp"
 #include "nvpsystem.hpp"
-#include "nvvk/appbase_vkpp.hpp"
-#include "nvvk/commands_vk.hpp"
-#include "nvvk/context_vk.hpp"
+#include "vk_appbase.h"
+//#include "nvvk/commands_vk.hpp"
+//#include "nvvk/context_vk.hpp"
+#include "vk_utils.h"
 
 
 //////////////////////////////////////////////////////////////////////////
@@ -121,42 +123,42 @@ int main(int argc, char** argv)
   };
 
   // Requesting Vulkan extensions and layers
-  nvvk::ContextCreateInfo contextInfo(true);
-  contextInfo.setVersion(1, 2);
-  contextInfo.addInstanceLayer("VK_LAYER_LUNARG_monitor", true);
-  contextInfo.addInstanceExtension(VK_EXT_DEBUG_UTILS_EXTENSION_NAME, true);
-  contextInfo.addInstanceExtension(VK_KHR_SURFACE_EXTENSION_NAME);
+  vkpbr::ContextCreateInfo contextInfo(true);
+  contextInfo.SetVersion(1, 2);
+  contextInfo.AddInstanceLayer("VK_LAYER_LUNARG_monitor", true);
+  contextInfo.AddInstanceExtension(VK_EXT_DEBUG_UTILS_EXTENSION_NAME, true);
+  contextInfo.AddInstanceExtension(VK_KHR_SURFACE_EXTENSION_NAME);
 #ifdef WIN32
-  contextInfo.addInstanceExtension(VK_KHR_WIN32_SURFACE_EXTENSION_NAME);
+  contextInfo.AddInstanceExtension(VK_KHR_WIN32_SURFACE_EXTENSION_NAME);
 #else
-  contextInfo.addInstanceExtension(VK_KHR_XLIB_SURFACE_EXTENSION_NAME);
-  contextInfo.addInstanceExtension(VK_KHR_XCB_SURFACE_EXTENSION_NAME);
+  contextInfo.AddInstanceExtension(VK_KHR_XLIB_SURFACE_EXTENSION_NAME);
+  contextInfo.AddInstanceExtension(VK_KHR_XCB_SURFACE_EXTENSION_NAME);
 #endif
-  contextInfo.addInstanceExtension(VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME);
-  contextInfo.addDeviceExtension(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
-  contextInfo.addDeviceExtension(VK_KHR_DEDICATED_ALLOCATION_EXTENSION_NAME);
-  contextInfo.addDeviceExtension(VK_KHR_GET_MEMORY_REQUIREMENTS_2_EXTENSION_NAME);
+  contextInfo.AddInstanceExtension(VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME);
+  contextInfo.AddDeviceExtension(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
+  contextInfo.AddDeviceExtension(VK_KHR_DEDICATED_ALLOCATION_EXTENSION_NAME);
+  contextInfo.AddDeviceExtension(VK_KHR_GET_MEMORY_REQUIREMENTS_2_EXTENSION_NAME);
   // #VKRay: Activate the ray tracing extension
   vk::PhysicalDeviceAccelerationStructureFeaturesKHR accelFeature;
-  contextInfo.addDeviceExtension(VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME, false,
+  contextInfo.AddDeviceExtension(VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME, false,
                                  &accelFeature);
   vk::PhysicalDeviceRayTracingPipelineFeaturesKHR rtPipelineFeature;
-  contextInfo.addDeviceExtension(VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME, false,
+  contextInfo.AddDeviceExtension(VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME, false,
                                  &rtPipelineFeature);
-  contextInfo.addDeviceExtension(VK_KHR_MAINTENANCE3_EXTENSION_NAME);
-  contextInfo.addDeviceExtension(VK_KHR_PIPELINE_LIBRARY_EXTENSION_NAME);
-  contextInfo.addDeviceExtension(VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME);
-  contextInfo.addDeviceExtension(VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME);
+  contextInfo.AddDeviceExtension(VK_KHR_MAINTENANCE3_EXTENSION_NAME);
+  contextInfo.AddDeviceExtension(VK_KHR_PIPELINE_LIBRARY_EXTENSION_NAME);
+  contextInfo.AddDeviceExtension(VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME);
+  contextInfo.AddDeviceExtension(VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME);
 
 
   // Creating Vulkan base application
-  nvvk::Context vkctx{};
-  vkctx.initInstance(contextInfo);
+  vkpbr::Context vkctx{};
+  vkctx.InitInstance(contextInfo);
   // Find all compatible devices
-  auto compatibleDevices = vkctx.getCompatibleDevices(contextInfo);
+  auto compatibleDevices = vkctx.GetCompatibleDevices(contextInfo);
   assert(!compatibleDevices.empty());
   // Use a compatible device
-  vkctx.initDevice(compatibleDevices[0], contextInfo);
+  vkctx.InitDevice(compatibleDevices[0], contextInfo);
 
 
   // Create example
@@ -164,7 +166,7 @@ int main(int argc, char** argv)
 
   // Window need to be opened to get the surface on which to draw
   const vk::SurfaceKHR surface = helloVk.getVkSurface(vkctx.m_instance, window);
-  vkctx.setGCTQueueWithPresent(surface);
+  vkctx.SetGCTQueueWithPresent(surface);
 
   helloVk.setup(vkctx.m_instance, vkctx.m_device, vkctx.m_physicalDevice,
                 vkctx.m_queueGCT.familyIndex);
@@ -177,8 +179,8 @@ int main(int argc, char** argv)
   helloVk.initGUI(0);  // Using sub-pass 0
 
   // Creation of the example
-  helloVk.loadModel(nvh::findFile("media/scenes/Medieval_building.obj", defaultSearchPaths, true));
-  helloVk.loadModel(nvh::findFile("media/scenes/plane.obj", defaultSearchPaths, true));
+  helloVk.loadModel(io::FindFile("media/scenes/Medieval_building.obj", defaultSearchPaths));
+  helloVk.loadModel(io::FindFile("media/scenes/plane.obj", defaultSearchPaths));
 
 
   helloVk.createOffscreenRender();
@@ -201,7 +203,7 @@ int main(int argc, char** argv)
   helloVk.updatePostDescriptorSet();
 
 
-  nvmath::vec4f clearColor   = nvmath::vec4f(1, 1, 1, 1.00f);
+  glm::vec4 clearColor   = glm::vec4(1, 1, 1, 1.00f);
   bool          useRaytracer = true;
 
 
@@ -303,7 +305,7 @@ int main(int argc, char** argv)
   helloVk.destroyResources();
   helloVk.destroy();
 
-  vkctx.deinit();
+  vkctx.DeInit();
 
   glfwDestroyWindow(window);
   glfwTerminate();
