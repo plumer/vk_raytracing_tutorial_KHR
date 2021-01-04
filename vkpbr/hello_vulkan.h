@@ -27,12 +27,12 @@
 #pragma once
 #include <vulkan/vulkan.hpp>
 
-#define NVVK_ALLOC_DEDICATED
 #include "vk_appbase.h"
 #include "vk_memory.h"
 #include "vk_utils.h"
 
 // #VKRay
+#include "camera.h"
 #include "vk_raytrace.h"
 
 //--------------------------------------------------------------------------------------------------
@@ -60,10 +60,11 @@ class HelloVulkan : public vkpbr::AppBase
     void destroyResources();
     void rasterize(const vk::CommandBuffer& cmdBuff);
 
+
     // The OBJ model
     struct ObjModel {
-        uint32_t     nbIndices{0};
-        uint32_t     nbVertices{0};
+        uint32_t                  nbIndices{0};
+        uint32_t                  nbVertices{0};
         vkpbr::UniqueMemoryBuffer vertexBuffer;    // Device buffer of all 'Vertex'
         vkpbr::UniqueMemoryBuffer indexBuffer;     // Device buffer of the indices forming triangles
         vkpbr::UniqueMemoryBuffer matColorBuffer;  // Device buffer of array of 'Wavefront material'
@@ -72,8 +73,8 @@ class HelloVulkan : public vkpbr::AppBase
 
     // Instance of the OBJ
     struct ObjInstance {
-        uint32_t      objIndex{0};     // Reference to the `m_objModel`
-        uint32_t      txtOffset{0};    // Offset in `m_textures`
+        uint32_t  objIndex{0};     // Reference to the `m_objModel`
+        uint32_t  txtOffset{0};    // Offset in `m_textures`
         glm::mat4 transform{1};    // Position of the instance
         glm::mat4 transformIT{1};  // Inverse transpose
     };
@@ -81,9 +82,9 @@ class HelloVulkan : public vkpbr::AppBase
     // Information pushed at each draw call
     struct ObjPushConstant {
         glm::vec3 lightPosition{10.f, 15.f, 8.f};
-        int           instanceId{0};  // To retrieve the transformation matrix
-        float         lightIntensity{100.f};
-        int           lightType{0};  // 0: point, 1: infinite
+        int       instanceId{0};  // To retrieve the transformation matrix
+        float     lightIntensity{100.f};
+        int       lightType{0};  // 0: point, 1: infinite
     };
     ObjPushConstant m_pushConstant;
 
@@ -100,12 +101,12 @@ class HelloVulkan : public vkpbr::AppBase
     vk::DescriptorSet            m_descSet;
 
     vkpbr::UniqueMemoryBuffer               m_cameraMat;  // Device-Host of the camera matrices
-    vkpbr::UniqueMemoryBuffer  m_sceneDesc;  // Device buffer of the OBJ instances
+    vkpbr::UniqueMemoryBuffer               m_sceneDesc;  // Device buffer of the OBJ instances
     std::vector<vkpbr::UniqueMemoryTexture> m_textures;   // vector of all textures of the scene
 
-    //nvvk::AllocatorDedicated m_alloc;  // Allocator for buffer, images, acceleration structures
+    // nvvk::AllocatorDedicated m_alloc;  // Allocator for buffer, images, acceleration structures
     vkpbr::UniqueMemoryAllocator allocator_;
-    nvvk::DebugUtil m_debug;  // Utility to name objects
+    nvvk::DebugUtil              m_debug;  // Utility to name objects
 
     // #Post
     void createOffscreenRender();
@@ -139,21 +140,24 @@ class HelloVulkan : public vkpbr::AppBase
     void raytrace(const vk::CommandBuffer& cmdBuf, const glm::vec4& clearColor);
 
 
-    vk::PhysicalDeviceRayTracingPipelinePropertiesKHR   m_rtProperties;
-    vkpbr::RaytracingBuilderKHR                         m_rtBuilder;
-    vkpbr::DescriptorSetBindings                        m_rtDescSetLayoutBind;
-    vk::DescriptorPool                                  m_rtDescPool;
-    vk::DescriptorSetLayout                             m_rtDescSetLayout;
-    vk::DescriptorSet                                   m_rtDescSet;
+    vk::PhysicalDeviceRayTracingPipelinePropertiesKHR m_rtProperties;
+    vkpbr::RaytracingBuilderKHR                       m_rtBuilder;
+
+    vkpbr::DescriptorSetBindings m_rtDescSetLayoutBind;
+    vk::DescriptorPool           m_rtDescPool;
+    vk::DescriptorSetLayout      m_rtDescSetLayout;
+    vk::DescriptorSet            m_rtDescSet;
+
     std::vector<vk::RayTracingShaderGroupCreateInfoKHR> m_rtShaderGroups;
-    vk::PipelineLayout                                  m_rtPipelineLayout;
-    vk::Pipeline                                        m_rtPipeline;
-    vkpbr::UniqueMemoryBuffer                          m_rtSBTBuffer;
+
+    vk::PipelineLayout        m_rtPipelineLayout;
+    vk::Pipeline              m_rtPipeline;
+    vkpbr::UniqueMemoryBuffer m_rtSBTBuffer;
 
     struct RtPushConstant {
         glm::vec4 clearColor;
         glm::vec3 lightPosition;
-        float         lightIntensity;
-        int           lightType;
+        float     lightIntensity;
+        int       lightType;
     } m_rtPushConstants;
 };

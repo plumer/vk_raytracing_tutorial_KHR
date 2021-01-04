@@ -780,7 +780,13 @@ bool Context::Init(const ContextCreateInfo& info)
     }
 
     // Use a compatible device
-    return InitDevice(compatibleDevices[info.compatibleDeviceIndex], info);
+    bool device_init_success = InitDevice(compatibleDevices[info.compatibleDeviceIndex], info);
+    if (!device_init_success) {
+        DeInit();
+        return false;
+    }
+
+    return true;
 }
 
 //--------------------------------------------------------------------------------------------------
@@ -788,6 +794,9 @@ bool Context::Init(const ContextCreateInfo& info)
 //
 bool Context::InitInstance(const ContextCreateInfo& info)
 {
+    VULKAN_HPP_DEFAULT_DISPATCHER.init(vkGetInstanceProcAddr);
+    CHECK(VULKAN_HPP_DEFAULT_DISPATCHER.vkEnumerateInstanceVersion);
+
     VkApplicationInfo applicationInfo{VK_STRUCTURE_TYPE_APPLICATION_INFO};
     applicationInfo.pApplicationName = info.appTitle;
     applicationInfo.pEngineName      = info.appEngine;
@@ -837,7 +846,7 @@ bool Context::InitInstance(const ContextCreateInfo& info)
         if (info.verboseAvailable) {
             LOG(INFO) << "Available Instance Extensions :";
             for (auto it : extensionProperties) {
-                LOG(INFO) << Format("%s (v. %d)\n", it.extensionName, it.specVersion);
+                LOG(INFO) << Format("%s (v. %d)", it.extensionName, it.specVersion);
             }
         }
     }
@@ -863,7 +872,9 @@ bool Context::InitInstance(const ContextCreateInfo& info)
     instanceCreateInfo.ppEnabledLayerNames     = m_usedInstanceLayers.data();
     instanceCreateInfo.pNext                   = info.instanceCreateInfoExt;
 
-    CHECK_EQ(vkCreateInstance(&instanceCreateInfo, nullptr, &m_instance), VK_SUCCESS);
+    m_instance = vk::createInstance(instanceCreateInfo);
+    CHECK(m_instance);
+    VULKAN_HPP_DEFAULT_DISPATCHER.init(m_instance);
 
     for (const auto& it : m_usedInstanceExtensions) {
         if (strcmp(it, VK_EXT_DEBUG_UTILS_EXTENSION_NAME) == 0) {
@@ -880,8 +891,9 @@ bool Context::InitInstance(const ContextCreateInfo& info)
 // \p deviceIndex is the index from the list of getPhysicalDevices/getPhysicalDeviceGroups
 bool Context::InitDevice(uint32_t deviceIndex, const ContextCreateInfo& info)
 {
-    assert(m_instance != nullptr);
+    assert(m_instance);
 
+    // Chooses the GPU.
     VkPhysicalDeviceGroupProperties physicalGroup;
     if (info.useDeviceGroups) {
         auto groups = GetGpuGroups();
@@ -952,10 +964,10 @@ bool Context::InitDevice(uint32_t deviceIndex, const ContextCreateInfo& info)
     auto extensionProperties = GetGpuExtensions(m_physicalDevice);
 
     if (info.verboseAvailable) {
-        LOG(INFO ) << ("_____________________________\n");
-        LOG(INFO) << ("Available Device Extensions :\n");
+        LOG(INFO) << ("_____________________________");
+        LOG(INFO) << ("Available Device Extensions :");
         for (auto it : extensionProperties) {
-            LOG(INFO) << ("%s (v. %d)\n", it.extensionName, it.specVersion);
+            LOG(INFO) << Format("%s (v. %d)", it.extensionName, it.specVersion);
         }
     }
 
@@ -967,12 +979,11 @@ bool Context::InitDevice(uint32_t deviceIndex, const ContextCreateInfo& info)
     }
 
     if (info.verboseUsed) {
-        LOG(INFO) << ("________________________\n");
-        LOG(INFO) << ("Used Device Extensions :\n");
+        LOG(INFO) << ("________________________");
+        LOG(INFO) << ("Used Device Extensions :");
         for (auto it : m_usedDeviceExtensions) {
-            LOG(INFO) << ("%s\n", it);
+            LOG(INFO) << it;
         }
-        LOG(INFO) << ("\n");
     }
 
     struct ExtensionHeader  // Helper struct to link extensions together
@@ -1034,14 +1045,15 @@ bool Context::InitDevice(uint32_t deviceIndex, const ContextCreateInfo& info)
         deviceCreateInfo.pNext   = info.deviceCreateInfoExt;
     }
 
-    VkResult result = vkCreateDevice(m_physicalDevice, &deviceCreateInfo, nullptr, &m_device);
+    vk::PhysicalDevice gpu = m_physicalDevice;
+    m_device = gpu.createDevice(deviceCreateInfo);
 
     if (deviceCreateChain) {
         // reset last of external chain
         deviceCreateChain->pNext = nullptr;
     }
 
-    if (result != VK_SUCCESS) {
+    if (!m_device) {
         DeInit();
         return false;
     }
@@ -1110,6 +1122,8 @@ bool Context::InitDevice(uint32_t deviceIndex, const ContextCreateInfo& info)
     m_queueC = findQueue(VK_QUEUE_COMPUTE_BIT, "queueC");
     m_queueT = findQueue(VK_QUEUE_TRANSFER_BIT, "queueT");
 
+    VULKAN_HPP_DEFAULT_DISPATCHER.init(m_instance, m_device);
+
     return true;
 }
 
@@ -1173,7 +1187,7 @@ void Context::DeInit()
         }
 
         vkDestroyDevice(m_device, nullptr);
-        m_device = VK_NULL_HANDLE;
+        m_device = nullptr;
     }
     if (m_destroyDebugUtilsMessengerEXT) {
         // Destroy the Debug Utils Messenger
@@ -1182,7 +1196,7 @@ void Context::DeInit()
 
     if (m_instance) {
         vkDestroyInstance(m_instance, nullptr);
-        m_instance = VK_NULL_HANDLE;
+        m_instance = nullptr;
     }
 
     m_usedInstanceExtensions.clear();
@@ -1415,7 +1429,7 @@ void Context::initDebugUtils()
 //
 std::vector<int> Context::GetCompatibleDevices(const ContextCreateInfo& info)
 {
-    assert(m_instance != nullptr);
+    assert(m_instance);
     std::vector<int>                             compatibleDevices;
     std::vector<VkPhysicalDeviceGroupProperties> groups;
     std::vector<VkPhysicalDevice>                physicalDevices;

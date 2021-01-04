@@ -35,10 +35,10 @@ extern std::vector<std::string> defaultSearchPaths;
 #include "obj_loader.h"
 
 #include "hello_vulkan.h"
-#include "nvh/cameramanipulator.hpp"
 #include "nvvk/pipeline_vk.hpp"
 #include "vk_utils.h"
 #include "io.h"
+#include "logging.h"
 
 #include <glm/gtx/transform.hpp>
 
@@ -74,10 +74,15 @@ void HelloVulkan::updateUniformBuffer(const vk::CommandBuffer& cmdBuf)
     const float aspectRatio = m_size.width / static_cast<float>(m_size.height);
 
     CameraMatrices ubo = {};
+#ifdef USE_NV_CAMERA
     nvmath::mat4f nv_view_mat = CameraManip.getMatrix();
     static_assert(sizeof(nv_view_mat) == sizeof(ubo.view), "glm::mat4");
     memcpy(&ubo.view, &nv_view_mat, sizeof(nv_view_mat));
     ubo.proj = glm::perspective(glm::radians(CameraManip.getFov()), aspectRatio, 0.1f, 1000.0f);
+#else
+    ubo.view = camera_->ViewMatrix();
+    ubo.proj = glm::perspective(glm::radians(camera_->Fov()), aspectRatio, 0.1f, 1000.f);
+#endif
     ubo.proj[1][1] *= -1;  // Inverting Y for Vulkan
     ubo.viewInverse = glm::inverse(ubo.view);
     // #VKRay
@@ -192,10 +197,8 @@ void HelloVulkan::createGraphicsPipeline()
     // Creating the Pipeline Layout
     vk::PipelineLayoutCreateInfo pipelineLayoutCreateInfo;
     vk::DescriptorSetLayout      descSetLayout(m_descSetLayout);
-    pipelineLayoutCreateInfo.setSetLayoutCount(1);
-    pipelineLayoutCreateInfo.setPSetLayouts(&descSetLayout);
-    pipelineLayoutCreateInfo.setPushConstantRangeCount(1);
-    pipelineLayoutCreateInfo.setPPushConstantRanges(&pushConstantRanges);
+    pipelineLayoutCreateInfo.setSetLayouts(descSetLayout);
+    pipelineLayoutCreateInfo.setPushConstantRanges(pushConstantRanges);
     m_pipelineLayout = m_device.createPipelineLayout(pipelineLayoutCreateInfo);
 
     // Creating the Pipeline
@@ -223,7 +226,7 @@ void HelloVulkan::loadModel(const std::string& filename, glm::mat4 transform)
 {
     using vkBU = vk::BufferUsageFlagBits;
 
-    LOGI("Loading File:  %s \n", filename.c_str());
+    LOG(INFO) << vkpbr::Format("Loading File:  %s", filename.c_str());
     ObjLoader loader;
     loader.loadModel(filename);
 
@@ -483,8 +486,6 @@ void HelloVulkan::onResize(int /*w*/, int /*h*/)
 //
 void HelloVulkan::createOffscreenRender()
 {
-    //m_alloc.destroy(m_offscreenColor);
-    //m_alloc.destroy(m_offscreenDepth);
     m_offscreenColor.DestroyFrom(m_device);
     m_offscreenDepth.DestroyFrom(m_device);
 
@@ -496,7 +497,7 @@ void HelloVulkan::createOffscreenRender()
                                                                | vk::ImageUsageFlagBits::eStorage);
 
 
-        vkpbr::UniqueMemoryImage             image = allocator_.MakeImage(colorCreateInfo);
+        vkpbr::UniqueMemoryImage image = allocator_.MakeImage(colorCreateInfo);
         vk::ImageViewCreateInfo ivInfo =
             vkpbr::MakeImageViewCreateInfo(image.handle, colorCreateInfo);
         m_offscreenColor = allocator_.MakeTexture(image, ivInfo, vk::SamplerCreateInfo());
@@ -546,8 +547,7 @@ void HelloVulkan::createOffscreenRender()
     m_device.destroy(m_offscreenFramebuffer);
     vk::FramebufferCreateInfo info;
     info.setRenderPass(m_offscreenRenderPass);
-    info.setAttachmentCount(2);
-    info.setPAttachments(attachments.data());
+    info.setAttachments(attachments);
     info.setWidth(m_size.width);
     info.setHeight(m_size.height);
     info.setLayers(1);
@@ -565,10 +565,8 @@ void HelloVulkan::createPostPipeline()
 
     // Creating the pipeline layout
     vk::PipelineLayoutCreateInfo pipelineLayoutCreateInfo;
-    pipelineLayoutCreateInfo.setSetLayoutCount(1);
-    pipelineLayoutCreateInfo.setPSetLayouts(&m_postDescSetLayout);
-    pipelineLayoutCreateInfo.setPushConstantRangeCount(1);
-    pipelineLayoutCreateInfo.setPPushConstantRanges(&pushConstantRanges);
+    pipelineLayoutCreateInfo.setSetLayouts(m_postDescSetLayout);
+    pipelineLayoutCreateInfo.setPushConstantRanges(pushConstantRanges);
     m_postPipelineLayout = m_device.createPipelineLayout(pipelineLayoutCreateInfo);
 
     // Pipeline: completely generic, no vertices
@@ -790,8 +788,6 @@ void HelloVulkan::createRtPipeline()
 
     vk::ShaderModule raygenSM =
         vkpbr::MakeShaderModule(m_device, io::LoadBinaryFile("shaders/raytrace.rgen.spv", paths));
-        //nvvk::createShaderModule(m_device,  //
-        //                         nvh::loadFile("shaders/raytrace.rgen.spv", true, paths, true));
     vk::ShaderModule missSM =
         vkpbr::MakeShaderModule(m_device, io::LoadBinaryFile("shaders/raytrace.rmiss.spv", paths));
 
@@ -840,26 +836,22 @@ void HelloVulkan::createRtPipeline()
                                            | vk::ShaderStageFlagBits::eClosestHitKHR
                                            | vk::ShaderStageFlagBits::eMissKHR,
                                        0, sizeof(RtPushConstant)};
-    pipelineLayoutCreateInfo.setPushConstantRangeCount(1);
-    pipelineLayoutCreateInfo.setPPushConstantRanges(&pushConstant);
+    pipelineLayoutCreateInfo.setPushConstantRanges(pushConstant);
 
     // Descriptor sets: one specific to ray tracing, and one shared with the rasterization pipeline
     std::vector<vk::DescriptorSetLayout> rtDescSetLayouts = {m_rtDescSetLayout, m_descSetLayout};
-    pipelineLayoutCreateInfo.setSetLayoutCount(static_cast<uint32_t>(rtDescSetLayouts.size()));
-    pipelineLayoutCreateInfo.setPSetLayouts(rtDescSetLayouts.data());
+    pipelineLayoutCreateInfo.setSetLayouts(rtDescSetLayouts);
 
     m_rtPipelineLayout = m_device.createPipelineLayout(pipelineLayoutCreateInfo);
 
     // Assemble the shader stages and recursion depth info into the ray tracing pipeline
 
     vk::RayTracingPipelineCreateInfoKHR rayPipelineInfo;
-    rayPipelineInfo.setStageCount(static_cast<uint32_t>(stages.size()));  // Stages are shaders
-    rayPipelineInfo.setPStages(stages.data());
+    rayPipelineInfo.setStages(stages);
 
     // In this case, m_rtShaderGroups.size() == 4: we have one raygen group,
     // two miss shader groups, and one hit group.
-    rayPipelineInfo.setGroupCount(static_cast<uint32_t>(m_rtShaderGroups.size()));
-    rayPipelineInfo.setPGroups(m_rtShaderGroups.data());
+    rayPipelineInfo.setGroups(m_rtShaderGroups);
 
     rayPipelineInfo.setMaxPipelineRayRecursionDepth(2);  // Ray depth
     rayPipelineInfo.setLayout(m_rtPipelineLayout);

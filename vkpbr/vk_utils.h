@@ -467,8 +467,8 @@ class Context
     };
 
 
-    VkInstance         m_instance{VK_NULL_HANDLE};
-    VkDevice           m_device{VK_NULL_HANDLE};
+    vk::Instance         m_instance = nullptr;
+    vk::Device           m_device = nullptr;
     VkPhysicalDevice   m_physicalDevice{VK_NULL_HANDLE};
     PhysicalDeviceInfo m_physicalInfo;
 

@@ -30,7 +30,7 @@
 
 #include <assert.h>
 
-#include <nvvk/debug_util_vk.hpp>
+//#include <nvvk/debug_util_vk.hpp>
 namespace vkpbr {
 bool SwapChain::init(VkDevice device, VkPhysicalDevice physicalDevice, VkQueue queue,
                      uint32_t queueFamilyIndex, VkSurfaceKHR surface, VkFormat format)
@@ -170,10 +170,6 @@ VkExtent2D SwapChain::update(int width, int height, bool vsync)
     err = vkCreateSwapchainKHR(m_device, &swapchain, nullptr, &m_swapchain);
     assert(!err);
 
-    nvvk::DebugUtil debugUtil(m_device);
-
-    debugUtil.setObjectName(m_swapchain, "SwapChain::m_swapchain");
-
     // If we just re-created an existing swapchain, we should destroy the old
     // swapchain at this point.
     // Note: destroying the swapchain also cleans up all its associated
@@ -247,11 +243,11 @@ VkExtent2D SwapChain::update(int width, int height, bool vsync)
 
         m_barriers[i] = memBarrier;
 
-        debugUtil.setObjectName(entry.image, "swapchainImage:" + std::to_string(i));
-        debugUtil.setObjectName(entry.imageView, "swapchainImageView:" + std::to_string(i));
-        debugUtil.setObjectName(entry.readSemaphore, "swapchainReadSemaphore:" + std::to_string(i));
-        debugUtil.setObjectName(entry.writtenSemaphore,
-                                "swapchainWrittenSemaphore:" + std::to_string(i));
+        //debugUtil.setObjectName(entry.image, "swapchainImage:" + std::to_string(i));
+        //debugUtil.setObjectName(entry.imageView, "swapchainImageView:" + std::to_string(i));
+        //debugUtil.setObjectName(entry.readSemaphore, "swapchainReadSemaphore:" + std::to_string(i));
+        //debugUtil.setObjectName(entry.writtenSemaphore,
+        //                        "swapchainWrittenSemaphore:" + std::to_string(i));
     }
 
 

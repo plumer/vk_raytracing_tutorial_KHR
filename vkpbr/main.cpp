@@ -37,14 +37,13 @@ VULKAN_HPP_DEFAULT_DISPATCH_LOADER_DYNAMIC_STORAGE
 #include "imgui_impl_glfw.h"
 
 #include "hello_vulkan.h"
-#include "imgui_camera_widget.h"
-#include "nvh/cameramanipulator.hpp"
+//#include "imgui_camera_widget.h"
+#include "imgui_helper.h"
+#include "imgui_impl_vk.h"
+//#include "nvh/cameramanipulator.hpp"
 #include "io.h"
-//#include "nvh/fileoperations.hpp"
 #include "nvpsystem.hpp"
 #include "vk_appbase.h"
-//#include "nvvk/commands_vk.hpp"
-//#include "nvvk/context_vk.hpp"
 #include "vk_utils.h"
 
 
@@ -64,7 +63,7 @@ static void onErrorCallback(int error, const char* description)
 // Extra UI
 void renderUI(HelloVulkan& helloVk)
 {
-  ImGuiH::CameraWidget();
+  //ImGuiH::CameraWidget();
   if(ImGui::CollapsingHeader("Light"))
   {
     ImGui::RadioButton("Point", &helloVk.m_pushConstant.lightType, 0);
@@ -99,9 +98,13 @@ int main(int argc, char** argv)
   GLFWwindow* window =
       glfwCreateWindow(SAMPLE_WIDTH, SAMPLE_HEIGHT, PROJECT_NAME, nullptr, nullptr);
 
-  // Setup camera
-  CameraManip.setWindowSize(SAMPLE_WIDTH, SAMPLE_HEIGHT);
-  CameraManip.setLookat(nvmath::vec3f(5, 4, -4), nvmath::vec3f(0, 1, 0), nvmath::vec3f(0, 1, 0));
+  //// Setup camera
+  //CameraManip.setWindowSize(SAMPLE_WIDTH, SAMPLE_HEIGHT);
+  //CameraManip.setLookat(nvmath::vec3f(5, 4, -4), nvmath::vec3f(0, 1, 0), nvmath::vec3f(0, 1, 0));
+
+  vkpbr::CameraNavigator camera;
+  camera.SetWindowSize(SAMPLE_WIDTH, SAMPLE_HEIGHT);
+  camera.SetLookAt(glm::vec3(5, 4, -4), {0, 1, 0}, {0, 1, 0});
 
   // Setup Vulkan
   if(!glfwVulkanSupported())
@@ -170,6 +173,7 @@ int main(int argc, char** argv)
 
   helloVk.setup(vkctx.m_instance, vkctx.m_device, vkctx.m_physicalDevice,
                 vkctx.m_queueGCT.familyIndex);
+  helloVk.SetCamera(&camera);
   helloVk.createSwapchain(surface, SAMPLE_WIDTH, SAMPLE_HEIGHT);
   helloVk.createDepthBuffer();
   helloVk.createRenderPass();
@@ -298,6 +302,7 @@ int main(int argc, char** argv)
     // Submit for display
     cmdBuf.end();
     helloVk.submitFrame();
+    std::this_thread::sleep_for(std::chrono::milliseconds(2));
   }
 
   // Cleanup
