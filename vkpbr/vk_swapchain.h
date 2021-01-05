@@ -32,7 +32,7 @@
 #include <stdio.h>
 #include <string>
 #include <vector>
-#include <vulkan/vulkan_core.h>
+#include <vulkan/vulkan.hpp>
 
 namespace vkpbr {
 
@@ -151,32 +151,33 @@ A typical renderloop would look as follows:
 ~~~
 
 */
+
 class SwapChain
 {
   private:
     struct Entry {
-        VkImage     image{};
-        VkImageView imageView{};
+        vk::Image     image{};
+        vk::ImageView imageView{};
         // be aware semaphore index may not match active image index
-        VkSemaphore readSemaphore{};
-        VkSemaphore writtenSemaphore{};
+        vk::Semaphore readSemaphore{};
+        vk::Semaphore writtenSemaphore{};
     };
 
-    VkDevice         m_device         = VK_NULL_HANDLE;
-    VkPhysicalDevice m_physicalDevice = VK_NULL_HANDLE;
+    vk::Device         m_device         = nullptr;
+    vk::PhysicalDevice m_physicalDevice = nullptr;
 
-    VkQueue  m_queue{};
-    uint32_t m_queueFamilyIndex{0};
+    vk::Queue m_queue{};
+    uint32_t  m_queueFamilyIndex{0};
 
-    VkSurfaceKHR    m_surface{};
-    VkFormat        m_surfaceFormat{};
-    VkColorSpaceKHR m_surfaceColor{};
+    vk::SurfaceKHR    m_surface;
+    vk::Format        m_surfaceFormat;
+    vk::ColorSpaceKHR m_surfaceColor;
 
-    uint32_t       m_imageCount{0};
-    VkSwapchainKHR m_swapchain{};
+    uint32_t         m_imageCount{0};
+    vk::SwapchainKHR m_swapchain{};
 
-    std::vector<Entry>                m_entries;
-    std::vector<VkImageMemoryBarrier> m_barriers;
+    std::vector<Entry>                  m_entries;
+    std::vector<vk::ImageMemoryBarrier> m_barriers;
 
     // index for current image, returned by vkAcquireNextImageKHR
     // vk spec: The order in which images are acquired is implementation-dependent,
@@ -187,7 +188,7 @@ class SwapChain
     // incremented by `SwapChain::update`, use to update other resources or track changes
     uint32_t m_changeID{0};
     // surface
-    VkExtent2D m_extent{0, 0};
+    vk::Extent2D m_extent{0, 0};
     // requested on update
     uint32_t m_updateWidth{0};
     uint32_t m_updateHeight{0};
@@ -202,27 +203,25 @@ class SwapChain
     SwapChain& operator=(SwapChain const&) = delete;
 
     SwapChain() {}
-    SwapChain(VkDevice device, VkPhysicalDevice physicalDevice, VkQueue queue,
-              uint32_t queueFamilyIndex, VkSurfaceKHR surface,
-              VkFormat format = VK_FORMAT_B8G8R8A8_UNORM)
+    SwapChain(vk::Device device, vk::PhysicalDevice gpu, vk::Queue queue, uint32_t queueFamilyIndex,
+              vk::SurfaceKHR surface, vk::Format format = vk::Format::eB8G8R8A8Unorm)
     {
-        init(device, physicalDevice, queue, queueFamilyIndex, surface, format);
+        Init(device, gpu, queue, queueFamilyIndex, surface, format);
     }
-    ~SwapChain() { deinit(); }
+    ~SwapChain() { DeInit(); }
 
-    bool init(VkDevice device, VkPhysicalDevice physicalDevice, VkQueue queue,
-              uint32_t queueFamilyIndex, VkSurfaceKHR surface,
-              VkFormat format = VK_FORMAT_B8G8R8A8_UNORM);
+    bool Init(vk::Device device, vk::PhysicalDevice gpu, vk::Queue queue, uint32_t queueFamilyIndex,
+              vk::SurfaceKHR surface, vk::Format format = vk::Format::eB8G8R8A8Unorm);
 
     // triggers device wait idle
-    void deinit();
+    void DeInit();
 
-    // update the swapchain configuration
-    // (must be called at least once after init)
-    // triggers device wait idle
-    // returns actual swapchain dimensions, which may differ from requested
-    VkExtent2D update(int width, int height, bool vsync);
-    VkExtent2D update(int width, int height) { return update(width, height, m_vsync); }
+    /* Update the swapchain configuration and returns actual swapchain dimensions, which may differ
+     * from requested. The call must be called at least once after init and triggers device wait
+     * idle.
+     */
+    vk::Extent2D update(int width, int height, bool vsync);
+    vk::Extent2D update(int width, int height) { return update(width, height, m_vsync); }
 
     // returns true on success
     // sets active index
@@ -232,44 +231,44 @@ class SwapChain
     // returns true on success
     // sets active index
     // allows to provide your own semaphore
-    bool acquireCustom(VkSemaphore semaphore);
+    bool acquireCustom(vk::Semaphore semaphore);
 
     // all present functions bump semaphore cycle
 
     // present on provided queue
-    void present(VkQueue queue);
+    void present(vk::Queue queue);
     // present using a default queue from init time
     void present() { present(m_queue); }
     // present via a custom function
-    // (e.g. when extending via VkDeviceGroupPresentInfoKHR)
+    // (e.g. when extending via vk::DeviceGroupPresentInfoKHR)
     // fills in defaults for provided presentInfo
     // with getActiveImageIndex()
     // and getActiveWrittenSemaphore()
-    void presentCustom(VkPresentInfoKHR& outPresentInfo);
+    void presentCustom(vk::PresentInfoKHR* presentInfo);
 
-    VkSemaphore getActiveReadSemaphore() const;
-    VkSemaphore getActiveWrittenSemaphore() const;
-    VkImage     getActiveImage() const;
-    VkImageView getActiveImageView() const;
-    uint32_t    getActiveImageIndex() const { return m_currentImage; }
+    vk::Semaphore getActiveReadSemaphore() const;
+    vk::Semaphore getActiveWrittenSemaphore() const;
+    vk::Image     getActiveImage() const;
+    vk::ImageView getActiveImageView() const;
+    uint32_t      getActiveImageIndex() const { return m_currentImage; }
 
-    uint32_t       getImageCount() const { return m_imageCount; }
-    VkImage        getImage(uint32_t i) const;
-    VkImageView    getImageView(uint32_t i) const;
-    VkFormat       getFormat() const { return m_surfaceFormat; }
-    uint32_t       getWidth() const { return m_extent.width; }
-    uint32_t       getHeight() const { return m_extent.height; }
-    VkExtent2D     getExtent() const { return m_extent; }
-    uint32_t       getUpdateWidth() const { return m_updateWidth; }
-    uint32_t       getUpdateHeight() const { return m_updateHeight; }
-    bool           getVsync() const { return m_vsync; }
-    VkSwapchainKHR getSwapchain() const { return m_swapchain; }
+    uint32_t         ImageCount() const { return m_imageCount; }
+    vk::Image        getImage(uint32_t i) const;
+    vk::ImageView    getImageView(uint32_t i) const;
+    vk::Format       Format() const { return m_surfaceFormat; }
+    uint32_t         Width() const { return m_extent.width; }
+    uint32_t         Height() const { return m_extent.height; }
+    vk::Extent2D     Extent() const { return m_extent; }
+    uint32_t         getUpdateWidth() const { return m_updateWidth; }
+    uint32_t         getUpdateHeight() const { return m_updateHeight; }
+    bool             getVsync() const { return m_vsync; }
+    vk::SwapchainKHR Handle() const { return m_swapchain; }
 
     // does a vkCmdPipelineBarrier for VK_IMAGE_LAYOUT_UNDEFINED to VK_IMAGE_LAYOUT_PRESENT_SRC_KHR
     // must apply resource transitions after update calls
-    void cmdUpdateBarriers(VkCommandBuffer cmd) const;
+    void cmdUpdateBarriers(vk::CommandBuffer cmd) const;
 
     uint32_t getChangeID() const;
 };
-}  // namespace nvvk
+}  // namespace vkpbr
 #endif

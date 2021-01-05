@@ -19,9 +19,9 @@ void AppBase::setup(const vk::Instance& instance, const vk::Device& device,
     vk::DynamicLoader         dl;
     PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr =
         dl.getProcAddress<PFN_vkGetInstanceProcAddr>("vkGetInstanceProcAddr");
-    VULKAN_HPP_DEFAULT_DISPATCHER.init(vkGetInstanceProcAddr);
-    VULKAN_HPP_DEFAULT_DISPATCHER.init(instance);
-    VULKAN_HPP_DEFAULT_DISPATCHER.init(device);
+    VULKAN_HPP_DEFAULT_DISPATCHER.Init(vkGetInstanceProcAddr);
+    VULKAN_HPP_DEFAULT_DISPATCHER.Init(instance);
+    VULKAN_HPP_DEFAULT_DISPATCHER.Init(device);
 
     m_instance           = instance;
     m_device             = device;
@@ -54,12 +54,12 @@ void AppBase::destroy()
     m_device.freeMemory(m_depthMemory);
     m_device.destroy(m_pipelineCache);
 
-    for (uint32_t i = 0; i < m_swapChain.getImageCount(); i++) {
+    for (uint32_t i = 0; i < m_swapChain.ImageCount(); i++) {
         m_device.destroy(m_waitFences[i]);
         m_device.destroy(m_framebuffers[i]);
         m_device.freeCommandBuffers(m_cmdPool, m_commandBuffers[i]);
     }
-    m_swapChain.deinit();
+    m_swapChain.DeInit();
 
     m_device.destroy(m_cmdPool);
     if (m_surface)
@@ -97,13 +97,13 @@ void AppBase::createSwapchain(const vk::SurfaceKHR& surface, uint32_t width, uin
     m_colorFormat = colorFormat;
     m_vsync       = vsync;
 
-    m_swapChain.init(m_device, m_physicalDevice, m_queue, m_graphicsQueueIndex, surface,
-                     static_cast<VkFormat>(colorFormat));
+    m_swapChain.Init(m_device, m_physicalDevice, m_queue, m_graphicsQueueIndex, surface,
+                     colorFormat);
     m_size        = m_swapChain.update(m_size.width, m_size.height, vsync);
-    m_colorFormat = static_cast<vk::Format>(m_swapChain.getFormat());
+    m_colorFormat = static_cast<vk::Format>(m_swapChain.Format());
 
     // Create Synchronization Primitives
-    m_waitFences.resize(m_swapChain.getImageCount());
+    m_waitFences.resize(m_swapChain.ImageCount());
     for (auto& fence : m_waitFences) {
         fence = m_device.createFence({vk::FenceCreateFlagBits::eSignaled});
     }
@@ -112,7 +112,7 @@ void AppBase::createSwapchain(const vk::SurfaceKHR& surface, uint32_t width, uin
     // so for static usage without having to rebuild them each frame, we use one per frame
     // buffer
     m_commandBuffers = m_device.allocateCommandBuffers(
-        {m_cmdPool, vk::CommandBufferLevel::ePrimary, m_swapChain.getImageCount()});
+        {m_cmdPool, vk::CommandBufferLevel::ePrimary, m_swapChain.ImageCount()});
 
 #ifdef _DEBUG
     for (size_t i = 0; i < m_commandBuffers.size(); i++) {
@@ -153,8 +153,8 @@ void AppBase::createFrameBuffers()
     framebufferCreateInfo.pAttachments    = attachments.data();
 
     // Create frame buffers for every swap chain image
-    m_framebuffers.resize(m_swapChain.getImageCount());
-    for (uint32_t i = 0; i < m_swapChain.getImageCount(); i++) {
+    m_framebuffers.resize(m_swapChain.ImageCount());
+    for (uint32_t i = 0; i < m_swapChain.ImageCount(); i++) {
         attachments[0]    = m_swapChain.getImageView(i);
         attachments[1]    = m_depthView;
         m_framebuffers[i] = m_device.createFramebuffer(framebufferCreateInfo);
@@ -470,21 +470,21 @@ void AppBase::onKeyboard(int key, int scancode, int action, int mods)
                 glfwSetWindowShouldClose(m_window, 1);
                 break;
             case GLFW_KEY_W:
-                camera_->Motion(1.f, 0, CameraNavigator::Actions::kDolly);
+                camera_->Motion(1, 0, CameraNavigator::Actions::kDolly);
                 break;
             case GLFW_KEY_S:
-                camera_->Motion(-1.f, 0, CameraNavigator::Actions::kDolly);
+                camera_->Motion(-1, 0, CameraNavigator::Actions::kDolly);
                 break;
             case GLFW_KEY_A:
             case GLFW_KEY_LEFT:
-                camera_->Motion(-1.f, 0, CameraNavigator::Actions::kPan);
+                camera_->Motion(-1, 0, CameraNavigator::Actions::kPan);
                 break;
             case GLFW_KEY_UP:
                 camera_->Motion(0, 1, CameraNavigator::Actions::kPan);
                 break;
             case GLFW_KEY_D:
             case GLFW_KEY_RIGHT:
-                camera_->Motion(1.f, 0, CameraNavigator::Actions::kPan);
+                camera_->Motion(1, 0, CameraNavigator::Actions::kPan);
                 break;
             case GLFW_KEY_DOWN:
                 camera_->Motion(0, -1, CameraNavigator::Actions::kPan);

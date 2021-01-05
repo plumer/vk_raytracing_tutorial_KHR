@@ -725,7 +725,7 @@ void HelloVulkan::createTopLevelAS()
         rayInst.instanceId = i;                           // gl_InstanceID
         rayInst.blasId     = m_objInstance[i].objIndex;
         rayInst.hitGroupId = 0;  // We will use the same hit group for all objects
-        rayInst.flags      = VK_GEOMETRY_INSTANCE_TRIANGLE_FACING_CULL_DISABLE_BIT_KHR;
+        rayInst.flags      = vk::GeometryInstanceFlagBitsKHR::eTriangleFacingCullDisable;
         tlas.emplace_back(rayInst);
     }
     m_rtBuilder.buildTlas(tlas, vk::BuildAccelerationStructureFlagBitsKHR::ePreferFastTrace);

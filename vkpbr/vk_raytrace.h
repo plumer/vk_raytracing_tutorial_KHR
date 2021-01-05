@@ -78,8 +78,8 @@ const VkAccelerationStructureKHR tlas = m.rtBuilder.getAccelerationStructure()
 //#include <nvvk/commands_vk.hpp>
 #include <nvvk/debug_util_vk.hpp>
 //#include "nvmath/nvmath.h"
-#include <glm/glm.hpp>
 #include "vk_memory.h"
+#include <glm/glm.hpp>
 
 #if VK_KHR_acceleration_structure
 
@@ -98,8 +98,8 @@ struct RaytracingBuilderKHR {
     // is built or updated.
     struct BlasInput {
         // Data used to build acceleration structure geometry
-        std::vector<VkAccelerationStructureGeometryKHR>       asGeometry;
-        std::vector<VkAccelerationStructureBuildRangeInfoKHR> asBuildOffsetInfo;
+        std::vector<vk::AccelerationStructureGeometryKHR>       asGeometry;
+        std::vector<vk::AccelerationStructureBuildRangeInfoKHR> asBuildOffsetInfo;
     };
 
   private:
@@ -113,7 +113,7 @@ struct RaytracingBuilderKHR {
         UniqueMemoryAccelStruct as;
 
         // Additional parameters for acceleration structure builds
-        VkBuildAccelerationStructureFlagsKHR flags = 0;
+        vk::BuildAccelerationStructureFlagsKHR flags;
 
         BlasEntry() = default;
         BlasEntry(BlasInput input_)
@@ -127,16 +127,17 @@ struct RaytracingBuilderKHR {
     // Initializing the allocator and querying the raytracing properties
     //
 
-    void setup(const VkDevice& device, UniqueMemoryAllocator* allocator, uint32_t queueIndex);
+    void setup(const vk::Device& device, UniqueMemoryAllocator* allocator, uint32_t queueIndex);
 
     // This is an instance of a BLAS
     struct Instance {
-        uint32_t                   blasId{0};      // Index of the BLAS in m_blas
-        uint32_t                   instanceId{0};  // Instance Index (gl_InstanceID)
-        uint32_t                   hitGroupId{0};  // Hit group index in the SBT
-        uint32_t                   mask{0xFF};     // Visibility mask, will be AND-ed with ray mask
-        VkGeometryInstanceFlagsKHR flags{VK_GEOMETRY_INSTANCE_TRIANGLE_FACING_CULL_DISABLE_BIT_KHR};
-        glm::mat4                  transform{1.0f};  // Identity
+        uint32_t                     blasId{0};      // Index of the BLAS in m_blas
+        uint32_t                     instanceId{0};  // Instance Index (gl_InstanceID)
+        uint32_t                     hitGroupId{0};  // Hit group index in the SBT
+        uint32_t                     mask{0xFF};  // Visibility mask, will be AND-ed with ray mask
+        vk::GeometryInstanceFlagsKHR flags =
+            vk::GeometryInstanceFlagBitsKHR::eTriangleFacingCullDisable;
+        glm::mat4 transform{1.0f};  // Identity
     };
 
     //--------------------------------------------------------------------------------------------------
@@ -146,7 +147,7 @@ struct RaytracingBuilderKHR {
     void destroy();
 
     // Returning the constructed top-level acceleration structure
-    VkAccelerationStructureKHR getAccelerationStructure() const { return m_tlas.as.handle; }
+    vk::AccelerationStructureKHR getAccelerationStructure() const { return m_tlas.as.handle; }
 
     //--------------------------------------------------------------------------------------------------
     // Create all the BLAS from the vector of BlasInput
@@ -156,23 +157,23 @@ struct RaytracingBuilderKHR {
     //   and can be referenced by index.
 
     void buildBlas(const std::vector<RaytracingBuilderKHR::BlasInput>& input,
-                   VkBuildAccelerationStructureFlagsKHR                flags =
-                       VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR);
+                   vk::BuildAccelerationStructureFlagsKHR              flags =
+                       vk::BuildAccelerationStructureFlagBitsKHR::ePreferFastTrace);
 
 
     //--------------------------------------------------------------------------------------------------
     // Convert an Instance object into a VkAccelerationStructureInstanceKHR
 
-    VkAccelerationStructureInstanceKHR instanceToVkGeometryInstanceKHR(const Instance& instance);
+    vk::AccelerationStructureInstanceKHR instanceToVkGeometryInstanceKHR(const Instance& instance);
 
     //--------------------------------------------------------------------------------------------------
     // Creating the top-level acceleration structure from the vector of Instance
     // - See struct of Instance
     // - The resulting TLAS will be stored in m_tlas
     // - update is to rebuild the Tlas with updated matrices
-    void buildTlas(const std::vector<Instance>&         instances,
-                   VkBuildAccelerationStructureFlagsKHR flags =
-                       VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR,
+    void buildTlas(const std::vector<Instance>&           instances,
+                   vk::BuildAccelerationStructureFlagsKHR flags =
+                       vk::BuildAccelerationStructureFlagBitsKHR::ePreferFastTrace,
                    bool update = false);
 
     //--------------------------------------------------------------------------------------------------
@@ -183,8 +184,8 @@ struct RaytracingBuilderKHR {
   private:
     // Top-level acceleration structure
     struct Tlas {
-        UniqueMemoryAccelStruct                       as;
-        VkBuildAccelerationStructureFlagsKHR flags = 0;
+        UniqueMemoryAccelStruct                as;
+        vk::BuildAccelerationStructureFlagsKHR flags;
     };
 
     //--------------------------------------------------------------------------------------------------
@@ -195,29 +196,11 @@ struct RaytracingBuilderKHR {
     // Instance buffer containing the matrices and BLAS ids
     vkpbr::UniqueMemoryBuffer m_instBuffer;
 
-    VkDevice m_device{VK_NULL_HANDLE};
-    uint32_t m_queueIndex{0};
+    vk::Device m_device;
+    uint32_t   m_queueIndex{0};
 
     UniqueMemoryAllocator* m_alloc = nullptr;
-    nvvk::DebugUtil  m_debug;
-
-#ifdef VULKAN_HPP
-  public:
-    void vkpbr::RaytracingBuilderKHR::buildBlas(
-        const std::vector<RaytracingBuilderKHR::BlasInput>& blas_,
-        vk::BuildAccelerationStructureFlagsKHR              flags)
-    {
-        buildBlas(blas_, static_cast<VkBuildAccelerationStructureFlagsKHR>(flags));
-    }
-
-    void vkpbr::RaytracingBuilderKHR::buildTlas(const std::vector<Instance>&           instances,
-                                               vk::BuildAccelerationStructureFlagsKHR flags,
-                                               bool update = false)
-    {
-        buildTlas(instances, static_cast<VkBuildAccelerationStructureFlagsKHR>(flags), update);
-    }
-
-#endif
+    nvvk::DebugUtil        m_debug;
 };
 
 }  // namespace vkpbr

@@ -794,7 +794,7 @@ bool Context::Init(const ContextCreateInfo& info)
 //
 bool Context::InitInstance(const ContextCreateInfo& info)
 {
-    VULKAN_HPP_DEFAULT_DISPATCHER.init(vkGetInstanceProcAddr);
+    VULKAN_HPP_DEFAULT_DISPATCHER.Init(vkGetInstanceProcAddr);
     CHECK(VULKAN_HPP_DEFAULT_DISPATCHER.vkEnumerateInstanceVersion);
 
     VkApplicationInfo applicationInfo{VK_STRUCTURE_TYPE_APPLICATION_INFO};
@@ -874,7 +874,7 @@ bool Context::InitInstance(const ContextCreateInfo& info)
 
     m_instance = vk::createInstance(instanceCreateInfo);
     CHECK(m_instance);
-    VULKAN_HPP_DEFAULT_DISPATCHER.init(m_instance);
+    VULKAN_HPP_DEFAULT_DISPATCHER.Init(m_instance);
 
     for (const auto& it : m_usedInstanceExtensions) {
         if (strcmp(it, VK_EXT_DEBUG_UTILS_EXTENSION_NAME) == 0) {
@@ -1122,7 +1122,7 @@ bool Context::InitDevice(uint32_t deviceIndex, const ContextCreateInfo& info)
     m_queueC = findQueue(VK_QUEUE_COMPUTE_BIT, "queueC");
     m_queueT = findQueue(VK_QUEUE_TRANSFER_BIT, "queueT");
 
-    VULKAN_HPP_DEFAULT_DISPATCHER.init(m_instance, m_device);
+    VULKAN_HPP_DEFAULT_DISPATCHER.Init(m_instance, m_device);
 
     return true;
 }
