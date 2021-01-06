@@ -28,12 +28,7 @@
 
 #include <vulkan/vulkan.hpp>
 
-//#include "imgui.h"
-//#include "imgui_camera_widget.h"
 #include "camera.h"
-//#include "imgui_helper.h"
-//#include "imgui_impl_vk.h"
-//#include "nvh/cameramanipulator.hpp"
 #include "vk_swapchain.h"
 
 #ifdef LINUX
@@ -47,9 +42,9 @@
 #include "GLFW/glfw3native.h"
 
 #include <cmath>
+#include <glm/glm.hpp>
 #include <set>
 #include <vector>
-#include <glm/glm.hpp>
 
 namespace vkpbr {
 
@@ -386,8 +381,7 @@ class AppBase
     //--------------------------------------------------------------------------------------------------
     // Fit the camera to the Bounding box
     //
-    void fitCamera(const glm::vec3& boxMin, const glm::vec3& boxMax,
-                   bool instantFit = true);
+    void fitCamera(const glm::vec3& boxMin, const glm::vec3& boxMax, bool instantFit = true);
 
     // Return true if the window is minimized
     bool isMinimized(bool doSleeping = true);
@@ -440,22 +434,22 @@ class AppBase
 
     //--------------------------------------------------------------------------------------------------
     // Getters
-    vk::Instance       getInstance() { return m_instance; }
-    vk::Device         getDevice() { return m_device; }
-    vk::PhysicalDevice getPhysicalDevice() { return m_physicalDevice; }
-    vk::Queue          getQueue() { return m_queue; }
-    uint32_t           getQueueFamily() { return m_graphicsQueueIndex; }
-    vk::CommandPool    getCommandPool() { return m_cmdPool; }
-    vk::RenderPass     getRenderPass() { return m_renderPass; }
+    vk::Instance       Instance() { return m_instance; }
+    vk::Device         Device() { return m_device; }
+    vk::PhysicalDevice Gpu() { return m_physicalDevice; }
+    vk::Queue          Queue() { return m_queue; }
+    uint32_t           QueueFamily() { return m_graphicsQueueIndex; }
+    vk::CommandPool    CommandPool() { return m_cmdPool; }
+    vk::RenderPass     RenderPass() { return m_renderPass; }
     vk::Extent2D       getSize() { return m_size; }
     vk::PipelineCache  getPipelineCache() { return m_pipelineCache; }
     vk::SurfaceKHR     getSurface() { return m_surface; }
 
     const std::vector<vk::Framebuffer>&   getFramebuffers() { return m_framebuffers; }
     const std::vector<vk::CommandBuffer>& getCommandBuffers() { return m_commandBuffers; }
-    uint32_t   getCurFrame() const { return m_swapChain.getActiveImageIndex(); }
-    vk::Format getColorFormat() const { return m_colorFormat; }
-    vk::Format getDepthFormat() const { return m_depthFormat; }
+    uint32_t   CurrentFrameIndex() const { return m_swapChain.getActiveImageIndex(); }
+    vk::Format ColorFormat() const { return m_colorFormat; }
+    vk::Format DepthFormat() const { return m_depthFormat; }
     bool       showGui() { return m_show_gui; }
 
   protected:
@@ -476,7 +470,7 @@ class AppBase
     vk::CommandPool    m_cmdPool;
 
     // Drawing/Surface
-    SwapChain                m_swapChain;
+    SwapChain                      m_swapChain;
     std::vector<vk::Framebuffer>   m_framebuffers;  // All framebuffers, correspond to the Swapchain
     std::vector<vk::CommandBuffer> m_commandBuffers;  // Command buffer per nb element in Swapchain
     std::vector<vk::Fence>         m_waitFences;      // Fences per nb element in Swapchain
@@ -495,10 +489,10 @@ class AppBase
     vk::Format m_depthFormat{vk::Format::eUndefined};
 
     // Camera manipulators
-    //nvh::CameraManipulator::Inputs m_inputs;  // Mouse button pressed
+    // nvh::CameraManipulator::Inputs m_inputs;  // Mouse button pressed
     CameraNavigator::Inputs camera_inputs_;
-    vkpbr::CameraNavigator*        camera_ = nullptr;
-    std::set<int>                  m_keys;    // Keyboard pressed
+    vkpbr::CameraNavigator* camera_ = nullptr;
+    std::set<int>           m_keys;  // Keyboard pressed
 
     // Other
     bool m_showHelp{false};  // Show help, pressing
@@ -506,4 +500,4 @@ class AppBase
 };  // namespace nvvk
 
 
-}  // namespace nvvk
+}  // namespace vkpbr

@@ -205,6 +205,53 @@ struct RaytracingBuilderKHR {
 
 }  // namespace vkpbr
 
+namespace vkrt {
+using BuildASFlagBits = vk::BuildAccelerationStructureFlagBitsKHR;
+using BuildASFlags    = vk::BuildAccelerationStructureFlagsKHR;
+using BuildASMode     = vk::BuildAccelerationStructureModeKHR;
+
+using ASBuildGeometryInfo = vk::AccelerationStructureBuildGeometryInfoKHR;
+using ASBuildRangeInfo    = vk::AccelerationStructureBuildRangeInfoKHR;
+using ASBuildType         = vk::AccelerationStructureBuildTypeKHR;
+using ASCreateInfo        = vk::AccelerationStructureCreateInfoKHR;
+using ASInstanceKHR       = vk::AccelerationStructureInstanceKHR;
+using ASType              = vk::AccelerationStructureTypeKHR;
+
+using CopyASInfo = vk::CopyAccelerationStructureInfoKHR;
+using CopyASMode = vk::CopyAccelerationStructureModeKHR;
+
+using RTShaderGroupCreateInfo = vk::RayTracingShaderGroupCreateInfoKHR;
+using RTShaderGroupType       = vk::RayTracingShaderGroupTypeKHR;
+using RTPipelineCreateInfo    = vk::RayTracingPipelineCreateInfoKHR;
+
+using GpuRtPipelineProperties = vk::PhysicalDeviceRayTracingPipelinePropertiesKHR;
+
+struct AccessFlagBits {
+    using Type                    = vk::AccessFlagBits;
+    static const Type eASWriteKHR = Type::eAccelerationStructureWriteKHR;
+    static const Type eASReadKHR  = Type::eAccelerationStructureReadKHR;
+};
+
+struct PipelineStageFlagBits {
+    using Type                     = vk::PipelineStageFlagBits;
+    static const Type eASBuildKHR  = Type::eAccelerationStructureBuildKHR;
+    static const Type eRTShaderKHR = Type::eRayTracingShaderKHR;
+};
+
+struct QueryType {
+    using Type                                = vk::QueryType;
+    static const Type eASCompactedSizeKHR     = Type::eAccelerationStructureCompactedSizeKHR;
+    static const Type eASSerializationSizeKHR = Type::eAccelerationStructureSerializationSizeKHR;
+};
+
+struct BufferUsageFlagBits {
+    using Type                              = vk::BufferUsageFlagBits;
+    static const Type eASStorageKHR         = Type::eAccelerationStructureStorageKHR;
+    static const Type eASBuildInputReadOnly = Type::eAccelerationStructureBuildInputReadOnlyKHR;
+    static const Type eSBTKHR               = Type::eShaderBindingTableKHR;
+};
+}  // namespace vkrt
+
 #else
 #error This include requires VK_KHR_ray_tracing support in the Vulkan SDK.
 #endif

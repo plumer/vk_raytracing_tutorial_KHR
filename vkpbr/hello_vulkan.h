@@ -121,6 +121,7 @@ class HelloVulkan : public vkpbr::AppBase
     vk::DescriptorSet            m_postDescSet;
     vk::Pipeline                 m_postPipeline;
     vk::PipelineLayout           m_postPipelineLayout;
+
     vk::RenderPass               m_offscreenRenderPass;
     vk::Framebuffer              m_offscreenFramebuffer;
     vkpbr::UniqueMemoryTexture   m_offscreenColor;
@@ -139,6 +140,7 @@ class HelloVulkan : public vkpbr::AppBase
     void                                   createRtShaderBindingTable();
     void raytrace(const vk::CommandBuffer& cmdBuf, const glm::vec4& clearColor);
 
+    enum RTStages {kRaygen, kMiss, kShadowMiss, kCHit, kNumStages};
 
     vk::PhysicalDeviceRayTracingPipelinePropertiesKHR m_rtProperties;
     vkpbr::RaytracingBuilderKHR                       m_rtBuilder;

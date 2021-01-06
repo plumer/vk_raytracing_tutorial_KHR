@@ -341,8 +341,6 @@ void HelloVulkan::createTextureImages(const vk::CommandBuffer&        cmdBuf,
         // The image format must be in VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
         vkpbr::CmdBarrierImageLayout(cmdBuf, texture.handle, vk::ImageLayout::eUndefined,
                                     vk::ImageLayout::eShaderReadOnlyOptimal);
-        //nvvk::cmdBarrierImageLayout(cmdBuf, texture.handle, vk::ImageLayout::eUndefined,
-        //                            vk::ImageLayout::eShaderReadOnlyOptimal);
         m_textures.push_back(texture);
     } else {
         // Uploading all images
@@ -401,10 +399,6 @@ void HelloVulkan::destroyResources()
     m_sceneDesc.DestroyFrom(m_device);
 
     for (auto& m : m_objModel) {
-        //m_alloc.destroy(m.vertexBuffer);
-        //m_alloc.destroy(m.indexBuffer);
-        //m_alloc.destroy(m.matColorBuffer);
-        //m_alloc.destroy(m.matIndexBuffer);
         m.vertexBuffer.DestroyFrom(m_device);
         m.indexBuffer.DestroyFrom(m_device);
         m.matColorBuffer.DestroyFrom(m_device);
@@ -855,8 +849,7 @@ void HelloVulkan::createRtPipeline()
 
     rayPipelineInfo.setMaxPipelineRayRecursionDepth(2);  // Ray depth
     rayPipelineInfo.setLayout(m_rtPipelineLayout);
-    m_rtPipeline = static_cast<const vk::Pipeline&>(
-        m_device.createRayTracingPipelineKHR({}, {}, rayPipelineInfo));
+    m_rtPipeline = m_device.createRayTracingPipelineKHR({}, {}, rayPipelineInfo).value;
 
     m_device.destroy(raygenSM);
     m_device.destroy(missSM);
