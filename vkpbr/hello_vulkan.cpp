@@ -35,10 +35,11 @@ extern std::vector<std::string> defaultSearchPaths;
 #include "obj_loader.h"
 
 #include "hello_vulkan.h"
-#include "nvvk/pipeline_vk.hpp"
-#include "vk_utils.h"
 #include "io.h"
 #include "logging.h"
+#include "meshloader.h"
+#include "nvvk/pipeline_vk.hpp"
+#include "vk_utils.h"
 
 #include <glm/gtx/transform.hpp>
 
@@ -61,9 +62,23 @@ void HelloVulkan::setup(const vk::Instance& instance, const vk::Device& device,
                         const vk::PhysicalDevice& physicalDevice, uint32_t queueFamily)
 {
     AppBase::setup(instance, device, physicalDevice, queueFamily);
-    //m_alloc.init(device, physicalDevice);
+    // m_alloc.init(device, physicalDevice);
     allocator_.Setup(device, physicalDevice);
     m_debug.setup(m_device);
+}
+
+void HelloVulkan::onKeyboard(int key, int scancode, int action, int mods)
+{
+    if (key == GLFW_KEY_F4) {
+        auto view = camera_->ViewMatrix();
+        view      = glm::transpose(view);
+
+        LOG(INFO) << " view matrix = ";
+        for (int i = 0; i < 4; ++i)
+            printf("[%7.6g, %7.6f, %7.6f, %7.6f]\n", view[i][0], view[i][1], view[i][2],
+                   view[i][3]);
+    }
+    vkpbr::AppBase::onKeyboard(key, scancode, action, mods);
 }
 
 //--------------------------------------------------------------------------------------------------
@@ -141,7 +156,7 @@ void HelloVulkan::createDescriptorSetLayout()
 
     m_descSet = m_device.allocateDescriptorSets(ds_alloc_info).front();
 
-    //m_descSet       = nvvk::allocateDescriptorSet(m_device, m_descPool, m_descSetLayout);
+    // m_descSet       = nvvk::allocateDescriptorSet(m_device, m_descPool, m_descSetLayout);
 }
 
 //--------------------------------------------------------------------------------------------------
@@ -206,8 +221,7 @@ void HelloVulkan::createGraphicsPipeline()
     nvvk::GraphicsPipelineGeneratorCombined gpb(m_device, m_pipelineLayout, m_offscreenRenderPass);
     gpb.depthStencilState.depthTestEnable = true;
     gpb.addShader(io::LoadBinaryFile("shaders/vert_shader.vert.spv", paths), vkSS::eVertex);
-    gpb.addShader(io::LoadBinaryFile("shaders/frag_shader.frag.spv", paths),
-                  vkSS::eFragment);
+    gpb.addShader(io::LoadBinaryFile("shaders/frag_shader.frag.spv", paths), vkSS::eFragment);
     gpb.addBindingDescription({0, sizeof(VertexObj)});
     gpb.addAttributeDescriptions(std::vector<vk::VertexInputAttributeDescription>{
         {0, 0, vk::Format::eR32G32B32Sfloat, offsetof(VertexObj, pos)},
@@ -249,21 +263,25 @@ void HelloVulkan::loadModel(const std::string& filename, glm::mat4 transform)
 
     // Create the buffers on Device and copy vertices, indices and materials
     vkpbr::CommandPool cmdBufGet(m_device, m_graphicsQueueIndex);
-    vk::CommandBuffer cmdBuf = cmdBufGet.MakeCmdBuffer();
+    vk::CommandBuffer  cmdBuf = cmdBufGet.MakeCmdBuffer();
     model.vertexBuffer =
         allocator_.MakeBuffer(cmdBuf, loader.m_vertices,
-                             vkBU::eVertexBuffer | vkBU::eStorageBuffer | vkBU::eShaderDeviceAddress
-                                 | vkBU::eAccelerationStructureBuildInputReadOnlyKHR);
+                              vkBU::eVertexBuffer | vkBU::eStorageBuffer
+                                  | vkBU::eShaderDeviceAddress
+                                  | vkBU::eAccelerationStructureBuildInputReadOnlyKHR);
     model.indexBuffer =
         allocator_.MakeBuffer(cmdBuf, loader.m_indices,
-                             vkBU::eIndexBuffer | vkBU::eStorageBuffer | vkBU::eShaderDeviceAddress
-                                 | vkBU::eAccelerationStructureBuildInputReadOnlyKHR);
+                              vkBU::eIndexBuffer | vkBU::eStorageBuffer | vkBU::eShaderDeviceAddress
+                                  | vkBU::eAccelerationStructureBuildInputReadOnlyKHR);
     model.matColorBuffer = allocator_.MakeBuffer(cmdBuf, loader.m_materials, vkBU::eStorageBuffer);
     model.matIndexBuffer = allocator_.MakeBuffer(cmdBuf, loader.m_matIndx, vkBU::eStorageBuffer);
     // Creates all textures found
     createTextureImages(cmdBuf, loader.m_textures);
     cmdBufGet.SubmitAndWait(cmdBuf);
     allocator_.ReleaseAllStagingBuffers();
+
+    u32 max_index = *std::max_element(loader.m_matIndx.begin(), loader.m_matIndx.end());
+    CHECK_LT(max_index, loader.m_materials.size());
 
     std::string objNb = std::to_string(instance.objIndex);
     m_debug.setObjectName(model.vertexBuffer.handle, (std::string("vertex_" + objNb).c_str()));
@@ -273,6 +291,115 @@ void HelloVulkan::loadModel(const std::string& filename, glm::mat4 transform)
 
     m_objModel.emplace_back(model);
     m_objInstance.emplace_back(instance);
+}
+
+void HelloVulkan::PrepareScene()
+{
+    const std::string prefix = "scenes/caustic-glass/";
+    auto glass_ply = LoadPly(io::FindFile(prefix + "geometry/mesh_00001.ply", defaultSearchPaths),
+                             /*enforce_triangle=*/true);
+    if (glass_ply.normals.empty())
+        glass_ply.normals = ComputeNormals(glass_ply.positions, glass_ply.indices);
+
+    auto plane_ply = LoadPly(io::FindFile(prefix + "geometry/mesh_00002.ply", defaultSearchPaths),
+                             /*enforce_triangle=*/true);
+    { // Centers the glass ply to the origin, and places the plane right under it.
+        glm::vec3 glass_min{INFINITY}, glass_max{-INFINITY};
+        for (const glm::vec3& p : glass_ply.positions) {
+            glass_min = glm::min(p, glass_min);
+            glass_max = glm::max(p, glass_max);
+        }
+        auto bbox_mid = (glass_min + glass_max) / 2.0f;
+
+        for (auto& p : glass_ply.positions) {
+            p -= bbox_mid;
+        }
+        for (auto& p : plane_ply.positions) {
+            p -= bbox_mid;
+        }
+    }
+
+    std::vector<VertexObj> glass_vertices(glass_ply.positions.size());
+    auto Glm2NvV3 = [](const glm::vec3& v) { return nvmath::vec3f(v.x, v.y, v.z); };
+    auto Glm2NvV2 = [](const glm::vec2& v) { return nvmath::vec2f(v.x, v.y); };
+    for (size_t i = 0; i < glass_ply.positions.size(); ++i) {
+        glass_vertices[i].pos = Glm2NvV3(glass_ply.positions[i]);
+        glass_vertices[i].nrm = Glm2NvV3(glass_ply.normals[i]);
+        if (!glass_ply.texture_uvs.empty())
+            glass_vertices[i].texCoord = Glm2NvV2(glass_ply.texture_uvs[i]);
+    }
+    std::vector<VertexObj> plane_vertices(plane_ply.positions.size());
+    for (size_t i = 0; i < plane_ply.positions.size(); ++i) {
+        plane_vertices[i].pos = Glm2NvV3(plane_ply.positions[i]);
+        plane_vertices[i].nrm = Glm2NvV3(plane_ply.normals[i]);
+        if (!plane_ply.texture_uvs.empty())
+            plane_vertices[i].texCoord = Glm2NvV2(plane_ply.texture_uvs[i]);
+    }
+
+    vkpbr::CommandPool cmd_pool(m_device, m_graphicsQueueIndex);
+    vk::CommandBuffer  cmd_buffer = cmd_pool.MakeCmdBuffer();
+
+    using vkBU   = vk::BufferUsageFlagBits;
+    using vkrtBU = vkrt::BufferUsageFlagBits;
+    ObjModel glass_model;
+    glass_model.nbVertices = glass_vertices.size();
+    glass_model.nbIndices  = glass_ply.indices.size();
+    glass_model.vertexBuffer =
+        allocator_.MakeBuffer(cmd_buffer, glass_vertices,
+                              vkBU::eVertexBuffer | vkBU::eStorageBuffer
+                                  | vkBU::eShaderDeviceAddress | vkrtBU::eBvhBuildInputReadOnly);
+    glass_model.indexBuffer = allocator_.MakeBuffer(cmd_buffer, glass_ply.indices,
+                              vkBU::eIndexBuffer | vkBU::eStorageBuffer | vkBU::eShaderDeviceAddress
+                                  | vkrtBU::eBvhBuildInputReadOnly);
+
+    MaterialObj glass_mtl;
+    glass_mtl.ior           = 1.25;
+    glass_mtl.transmittance = {0.0f, 0.0f, 0.0f};
+    glass_mtl.textureID     = -1;
+
+    std::vector<MaterialObj> mtl_wrapper = {glass_mtl};
+    glass_model.matColorBuffer =
+        allocator_.MakeBuffer(cmd_buffer, mtl_wrapper, vkBU::eStorageBuffer);
+    std::vector<int> mtl_indices = {0};
+    glass_model.matIndexBuffer =
+        allocator_.MakeBuffer(cmd_buffer, mtl_indices, vkBU::eStorageBuffer);
+
+    MaterialObj plane_mtl;
+    plane_mtl.specular  = {0.2f, 0.2f, 0.2f};
+    plane_mtl.diffuse   = {0.64f, 0.64f, 0.64f};
+    plane_mtl.specular  = {0.1f, 0.1f, 0.1f};
+    plane_mtl.textureID = -1;
+    mtl_wrapper         = {plane_mtl};
+    ObjModel plane_model;
+    plane_model.nbVertices = plane_vertices.size();
+    plane_model.nbIndices  = plane_ply.indices.size();
+    plane_model.vertexBuffer = allocator_.MakeBuffer(cmd_buffer, plane_vertices,
+                              vkBU::eVertexBuffer | vkBU::eStorageBuffer
+                                  | vkBU::eShaderDeviceAddress | vkrtBU::eBvhBuildInputReadOnly);
+    plane_model.indexBuffer  = allocator_.MakeBuffer(cmd_buffer, plane_ply.indices,
+                              vkBU::eIndexBuffer | vkBU::eStorageBuffer | vkBU::eShaderDeviceAddress
+                                  | vkrtBU::eBvhBuildInputReadOnly);
+    plane_model.matColorBuffer =
+        allocator_.MakeBuffer(cmd_buffer, mtl_wrapper, vkBU::eStorageBuffer);
+    plane_model.matIndexBuffer =
+        allocator_.MakeBuffer(cmd_buffer, mtl_indices, vkBU::eStorageBuffer);
+
+    m_objModel.push_back(glass_model);
+    m_objModel.push_back(plane_model);
+
+    // Prepares the instances.
+    ObjInstance glass_instance;
+    glass_instance.objIndex = m_objModel.size() - 2;
+
+    ObjInstance plane_instance;
+    plane_instance.objIndex = m_objModel.size() - 1;
+    m_objInstance.push_back(glass_instance);
+    m_objInstance.push_back(plane_instance);
+
+    createTextureImages(cmd_buffer, {});
+
+    cmd_pool.SubmitAndWait(cmd_buffer);
+    allocator_.ReleaseAllStagingBuffers();
 }
 
 //--------------------------------------------------------------------------------------------------
@@ -286,7 +413,7 @@ void HelloVulkan::createUniformBuffer()
 
     m_cameraMat =
         allocator_.MakeBuffer(sizeof(CameraMatrices), vkBU::eUniformBuffer | vkBU::eTransferDst,
-                             vkMP::eDeviceLocal);
+                              vkMP::eDeviceLocal);
     m_debug.setObjectName(m_cameraMat.handle, "cameraMat");
 }
 
@@ -305,7 +432,7 @@ void HelloVulkan::createSceneDescriptionBuffer()
     m_sceneDesc = allocator_.MakeBuffer(cmdBuf, m_objInstance, vkBU::eStorageBuffer);
     cmdGen.SubmitAndWait(cmdBuf);
     allocator_.ReleaseAllStagingBuffers();
-    //m_alloc.finalizeAndReleaseStaging();
+    // m_alloc.finalizeAndReleaseStaging();
     m_debug.setObjectName(m_sceneDesc.handle, "sceneDesc");
 }
 
@@ -340,7 +467,7 @@ void HelloVulkan::createTextureImages(const vk::CommandBuffer&        cmdBuf,
 
         // The image format must be in VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
         vkpbr::CmdBarrierImageLayout(cmdBuf, texture.handle, vk::ImageLayout::eUndefined,
-                                    vk::ImageLayout::eShaderReadOnlyOptimal);
+                                     vk::ImageLayout::eShaderReadOnlyOptimal);
         m_textures.push_back(texture);
     } else {
         // Uploading all images
@@ -373,7 +500,7 @@ void HelloVulkan::createTextureImages(const vk::CommandBuffer&        cmdBuf,
                 vkpbr::UniqueMemoryImage image =
                     allocator_.MakeImage(cmdBuf, bufferSize, pixels, imageCreateInfo);
                 vkpbr::CmdGenerateMipmaps(cmdBuf, image.handle, format, imgSize,
-                                         imageCreateInfo.mipLevels);
+                                          imageCreateInfo.mipLevels);
                 vk::ImageViewCreateInfo ivInfo =
                     vkpbr::MakeImageViewCreateInfo(image.handle, imageCreateInfo);
                 auto texture = allocator_.MakeTexture(image, ivInfo, samplerCreateInfo);
@@ -406,7 +533,7 @@ void HelloVulkan::destroyResources()
     }
 
     for (auto& t : m_textures) {
-        //m_alloc.destroy(t);
+        // m_alloc.destroy(t);
         t.DestroyFrom(m_device);
     }
 
@@ -486,13 +613,13 @@ void HelloVulkan::createOffscreenRender()
     // Creating the color image
     {
         auto colorCreateInfo = vkpbr::MakeImage2DCreateInfo(m_size, m_offscreenColorFormat,
-                                                           vk::ImageUsageFlagBits::eColorAttachment
-                                                               | vk::ImageUsageFlagBits::eSampled
-                                                               | vk::ImageUsageFlagBits::eStorage);
+                                                            vk::ImageUsageFlagBits::eColorAttachment
+                                                                | vk::ImageUsageFlagBits::eSampled
+                                                                | vk::ImageUsageFlagBits::eStorage);
 
 
         vkpbr::UniqueMemoryImage image = allocator_.MakeImage(colorCreateInfo);
-        vk::ImageViewCreateInfo ivInfo =
+        vk::ImageViewCreateInfo  ivInfo =
             vkpbr::MakeImageViewCreateInfo(image.handle, colorCreateInfo);
         m_offscreenColor = allocator_.MakeTexture(image, ivInfo, vk::SamplerCreateInfo());
         m_offscreenColor.descriptor.imageLayout = vk::ImageLayout::eGeneral;
@@ -501,7 +628,7 @@ void HelloVulkan::createOffscreenRender()
     // Creating the depth buffer
     auto depthCreateInfo =
         vkpbr::MakeImage2DCreateInfo(m_size, m_offscreenDepthFormat,
-                                    vk::ImageUsageFlagBits::eDepthStencilAttachment);
+                                     vk::ImageUsageFlagBits::eDepthStencilAttachment);
     {
         vkpbr::UniqueMemoryImage image = allocator_.MakeImage(depthCreateInfo);
 
@@ -517,12 +644,12 @@ void HelloVulkan::createOffscreenRender()
     // Setting the image layout for both color and depth
     {
         vkpbr::CommandPool genCmdBuf(m_device, m_graphicsQueueIndex);
-        auto              cmdBuf = genCmdBuf.MakeCmdBuffer();
+        auto               cmdBuf = genCmdBuf.MakeCmdBuffer();
         vkpbr::CmdBarrierImageLayout(cmdBuf, m_offscreenColor.handle, vk::ImageLayout::eUndefined,
-                                    vk::ImageLayout::eGeneral);
+                                     vk::ImageLayout::eGeneral);
         vkpbr::CmdBarrierImageLayout(cmdBuf, m_offscreenDepth.handle, vk::ImageLayout::eUndefined,
-                                    vk::ImageLayout::eDepthStencilAttachmentOptimal,
-                                    vk::ImageAspectFlagBits::eDepth);
+                                     vk::ImageLayout::eDepthStencilAttachmentOptimal,
+                                     vk::ImageAspectFlagBits::eDepth);
 
         genCmdBuf.SubmitAndWait(cmdBuf);
     }
@@ -596,7 +723,7 @@ void HelloVulkan::createPostDescriptor()
                                    .setSetLayouts(m_postDescSetLayout);
     m_postDescSet = m_device.allocateDescriptorSets(desc_set_alloc_info).front();
 
-    //m_postDescSet = nvvk::allocateDescriptorSet(m_device, m_postDescPool, m_postDescSetLayout);
+    // m_postDescSet = nvvk::allocateDescriptorSet(m_device, m_postDescPool, m_postDescSetLayout);
 }
 
 //--------------------------------------------------------------------------------------------------
@@ -605,7 +732,7 @@ void HelloVulkan::createPostDescriptor()
 void HelloVulkan::updatePostDescriptorSet()
 {
     vk::DescriptorImageInfo dii = m_offscreenColor.descriptor;
-    vk::WriteDescriptorSet writeDescriptorSets =
+    vk::WriteDescriptorSet  writeDescriptorSets =
         m_postDescSetLayoutBind.MakeWrite(m_postDescSet, 0, &dii);
     m_device.updateDescriptorSets(writeDescriptorSets, nullptr);
 }
@@ -706,7 +833,7 @@ void HelloVulkan::createBottomLevelAS()
         // We could add more geometry in each BLAS, but we add only one for now
         allBlas.emplace_back(blas);
     }
-    m_rtBuilder.buildBlas(allBlas, vk::BuildAccelerationStructureFlagBitsKHR::ePreferFastTrace);
+    m_rtBuilder.buildBlas(allBlas, vkrt::BuildBvhFlagBits::ePreferFastTrace);
 }
 
 void HelloVulkan::createTopLevelAS()
@@ -735,9 +862,10 @@ void HelloVulkan::createRtDescriptorSet()
     using vkDSLB = vk::DescriptorSetLayoutBinding;
 
     m_rtDescSetLayoutBind.AddBinding(vkDSLB(0, vkDT::eAccelerationStructureKHR, 1,
-                                            vkSS::eRaygenKHR | vkSS::eClosestHitKHR));      // TLAS
-    m_rtDescSetLayoutBind.AddBinding(vkDSLB(1, vkDT::eStorageImage, 1, vkSS::eRaygenKHR));  // Output
-                                                                                            // image
+                                            vkSS::eRaygenKHR | vkSS::eClosestHitKHR));  // TLAS
+    m_rtDescSetLayoutBind.AddBinding(
+        vkDSLB(1, vkDT::eStorageImage, 1, vkSS::eRaygenKHR));  // Output
+                                                               // image
 
     m_rtDescPool      = m_rtDescSetLayoutBind.MakePool(m_device);
     m_rtDescSetLayout = m_rtDescSetLayoutBind.MakeLayout(m_device);
@@ -787,7 +915,7 @@ void HelloVulkan::createRtPipeline()
 
     // The second miss shader is invoked when a shadow ray misses the geometry. It
     // simply indicates that no occlusion has been found
-    vk::ShaderModule shadowmissSM = 
+    vk::ShaderModule shadowmissSM =
         vkpbr::MakeShaderModule(m_device,
                                 io::LoadBinaryFile("shaders/raytraceShadow.rmiss.spv", paths));
 
@@ -823,8 +951,9 @@ void HelloVulkan::createRtPipeline()
     hg.setClosestHitShader(static_cast<uint32_t>(stages.size() - 1));
     m_rtShaderGroups.push_back(hg);
 
+    // RT pipeline 1.1: pipeline layout - push constant.
+    // --------------------------------------------------------------------------------------------
     vk::PipelineLayoutCreateInfo pipelineLayoutCreateInfo;
-
     // Push constant: we want to be able to update constants used by the shaders
     vk::PushConstantRange pushConstant{vk::ShaderStageFlagBits::eRaygenKHR
                                            | vk::ShaderStageFlagBits::eClosestHitKHR
@@ -832,21 +961,21 @@ void HelloVulkan::createRtPipeline()
                                        0, sizeof(RtPushConstant)};
     pipelineLayoutCreateInfo.setPushConstantRanges(pushConstant);
 
-    // Descriptor sets: one specific to ray tracing, and one shared with the rasterization pipeline
+    // RT pipeline 1.2: pipeline layout - descriptor set layouts.
+    // --------------------------------------------------------------------------------------------
+    // One specific to ray tracing (index 0), and one shared with the raster pipeline (index 1).
     std::vector<vk::DescriptorSetLayout> rtDescSetLayouts = {m_rtDescSetLayout, m_descSetLayout};
     pipelineLayoutCreateInfo.setSetLayouts(rtDescSetLayouts);
 
     m_rtPipelineLayout = m_device.createPipelineLayout(pipelineLayoutCreateInfo);
 
-    // Assemble the shader stages and recursion depth info into the ray tracing pipeline
-
+    // RT pipeline 2, 3, 4: shader stages, shader groups, and recursion depth.
+    // --------------------------------------------------------------------------------------------
     vk::RayTracingPipelineCreateInfoKHR rayPipelineInfo;
     rayPipelineInfo.setStages(stages);
-
-    // In this case, m_rtShaderGroups.size() == 4: we have one raygen group,
-    // two miss shader groups, and one hit group.
+    // In this case, m_rtShaderGroups.size() == 4: we have 1 raygen group, 2 miss shader groups, and
+    // one hit group.
     rayPipelineInfo.setGroups(m_rtShaderGroups);
-
     rayPipelineInfo.setMaxPipelineRayRecursionDepth(2);  // Ray depth
     rayPipelineInfo.setLayout(m_rtPipelineLayout);
     m_rtPipeline = m_device.createRayTracingPipelineKHR({}, {}, rayPipelineInfo).value;
@@ -884,8 +1013,7 @@ void HelloVulkan::createRtShaderBindingTable()
     uint32_t groupHandleSize = m_rtProperties.shaderGroupHandleSize;   // Size of a program
                                                                        // identifier
     // Compute the actual size needed per SBT entry (round-up to alignment needed).
-    uint32_t groupSizeAligned =
-        AlignUp(groupHandleSize, m_rtProperties.shaderGroupBaseAlignment);
+    uint32_t groupSizeAligned = AlignUp(groupHandleSize, m_rtProperties.shaderGroupBaseAlignment);
     // Bytes needed for the SBT.
     uint32_t sbtSize = groupCount * groupSizeAligned;
 
@@ -937,8 +1065,8 @@ void HelloVulkan::raytrace(const vk::CommandBuffer& cmdBuf, const glm::vec4& cle
                                          0, m_rtPushConstants);
 
     // Size of a program identifier
-    uint32_t          groupSize   = AlignUp(m_rtProperties.shaderGroupHandleSize,
-                                       m_rtProperties.shaderGroupBaseAlignment);
+    uint32_t groupSize =
+        AlignUp(m_rtProperties.shaderGroupHandleSize, m_rtProperties.shaderGroupBaseAlignment);
     uint32_t          groupStride = groupSize;
     vk::DeviceAddress sbtAddress  = m_device.getBufferAddress({m_rtSBTBuffer.handle});
 

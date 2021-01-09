@@ -31,6 +31,8 @@ layout(push_constant) uniform Constants
 }
 pushC;
 
+// The gl_InstanceID is the index of the intersected instance as it appeared in the array of
+// instances used to build the TLAS. 
 
 void main()
 {
@@ -79,7 +81,6 @@ void main()
   // Material of the object
   int               matIdx = matIndex[nonuniformEXT(objId)].i[gl_PrimitiveID];
   WaveFrontMaterial mat    = materials[nonuniformEXT(objId)].m[matIdx];
-
 
   // Diffuse
   vec3 diffuse = computeDiffuse(mat, L, normal);

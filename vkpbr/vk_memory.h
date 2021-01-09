@@ -40,6 +40,11 @@ struct UniqueMemoryTexture {
     void DestroyFrom(const vk::Device& device);
 };
 
+using UniqueBuffer  = UniqueMemoryBuffer;
+using UniqueAS      = UniqueMemoryAccelStruct;
+using UniqueImage   = UniqueMemoryImage;
+using UniqueTexture = UniqueMemoryTexture;
+
 // Computes number of bytes occupied by the data in the container.
 template <typename T>
 inline size_t DataSize(const std::vector<T>& std_vector)
@@ -76,7 +81,8 @@ class UniqueMemoryAllocator
 
     template <typename T>
     UniqueMemoryBuffer MakeBuffer(
-        const vk::CommandBuffer& cmd_buffer, const std::vector<T>& data, vk::BufferUsageFlags usage,
+        const vk::CommandBuffer& cmd_buffer, const std::vector<T> &data,
+        vk::BufferUsageFlags    usage,
         vk::MemoryPropertyFlags mem_properties = vk::MemoryPropertyFlagBits::eDeviceLocal) const
     {
         auto buffer_size = DataSize(data);

@@ -37,14 +37,14 @@ VULKAN_HPP_DEFAULT_DISPATCH_LOADER_DYNAMIC_STORAGE
 #include "imgui_impl_glfw.h"
 
 #include "hello_vulkan.h"
-//#include "imgui_camera_widget.h"
 #include "imgui_helper.h"
 #include "imgui_impl_vk.h"
-//#include "nvh/cameramanipulator.hpp"
 #include "io.h"
 #include "nvpsystem.hpp"
 #include "vk_appbase.h"
 #include "vk_utils.h"
+
+#include <glm/gtx/transform.hpp>
 
 
 //////////////////////////////////////////////////////////////////////////
@@ -176,8 +176,10 @@ int main(int argc, char** argv)
     helloVk.initGUI(0);  // Using sub-pass 0
 
     // Creation of the example
-    helloVk.loadModel(io::FindFile("media/scenes/Medieval_building.obj", defaultSearchPaths));
-    helloVk.loadModel(io::FindFile("media/scenes/plane.obj", defaultSearchPaths));
+    //helloVk.loadModel(io::FindFile("media/scenes/Medieval_building.obj", defaultSearchPaths));
+    //helloVk.loadModel(io::FindFile("media/scenes/plane.obj", defaultSearchPaths));
+
+    helloVk.PrepareScene();
 
 
     helloVk.createOffscreenRender();
@@ -202,7 +204,6 @@ int main(int argc, char** argv)
 
     glm::vec4 clearColor   = glm::vec4(1, 1, 1, 1.00f);
     bool      useRaytracer = true;
-
 
     helloVk.setupGlfwCallbacks(window);
     ImGui_ImplGlfw_InitForVulkan(window, true);

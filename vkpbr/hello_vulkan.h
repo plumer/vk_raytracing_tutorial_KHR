@@ -47,9 +47,11 @@ class HelloVulkan : public vkpbr::AppBase
   public:
     void setup(const vk::Instance& instance, const vk::Device& device,
                const vk::PhysicalDevice& physicalDevice, uint32_t queueFamily) override;
+
+    void onKeyboard(int key, int action, int scancode, int mode) override;
+
     void createDescriptorSetLayout();
     void createGraphicsPipeline();
-    void loadModel(const std::string& filename, glm::mat4 transform = glm::mat4(1));
     void updateDescriptorSet();
     void createUniformBuffer();
     void createSceneDescriptionBuffer();
@@ -60,6 +62,9 @@ class HelloVulkan : public vkpbr::AppBase
     void destroyResources();
     void rasterize(const vk::CommandBuffer& cmdBuff);
 
+    void loadModel(const std::string& filename, glm::mat4 transform = glm::mat4(1));
+    // Prepares the scene with a few pre-defined models and materials
+    void PrepareScene();
 
     // The OBJ model
     struct ObjModel {
@@ -100,9 +105,9 @@ class HelloVulkan : public vkpbr::AppBase
     vk::DescriptorSetLayout      m_descSetLayout;
     vk::DescriptorSet            m_descSet;
 
-    vkpbr::UniqueMemoryBuffer               m_cameraMat;  // Device-Host of the camera matrices
-    vkpbr::UniqueMemoryBuffer               m_sceneDesc;  // Device buffer of the OBJ instances
-    std::vector<vkpbr::UniqueMemoryTexture> m_textures;   // vector of all textures of the scene
+    vkpbr::UniqueMemoryBuffer         m_cameraMat;  // Device-Host of the camera matrices
+    vkpbr::UniqueMemoryBuffer         m_sceneDesc;  // Device buffer of the OBJ instances
+    std::vector<vkpbr::UniqueTexture> m_textures;   // vector of all textures of the scene
 
     // nvvk::AllocatorDedicated m_alloc;  // Allocator for buffer, images, acceleration structures
     vkpbr::UniqueMemoryAllocator allocator_;

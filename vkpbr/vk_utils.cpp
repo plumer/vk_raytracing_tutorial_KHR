@@ -826,7 +826,7 @@ bool Context::InitInstance(const ContextCreateInfo& info)
         if (info.verboseAvailable) {
             LOG(INFO) << "___________________________\n" << "Available Instance Layers :\n";
             for (auto it : layerProperties) {
-                printf("%s (v. %x %x) : %s\n", it.layerName, it.specVersion, it.implementationVersion,
+                printf(" - %s (v. %x %x) : %s\n", it.layerName, it.specVersion, it.implementationVersion,
                      it.description);
             }
         }
@@ -846,7 +846,7 @@ bool Context::InitInstance(const ContextCreateInfo& info)
         if (info.verboseAvailable) {
             LOG(INFO) << "Available Instance Extensions :";
             for (auto it : extensionProperties) {
-                LOG(INFO) << Format("%s (v. %d)", it.extensionName, it.specVersion);
+                printf(" - %s (v. %d)\n", it.extensionName, it.specVersion);
             }
         }
     }
@@ -855,11 +855,11 @@ bool Context::InitInstance(const ContextCreateInfo& info)
     if (info.verboseUsed) {
         LOG(INFO) << "______________________\n" << "Used Instance Layers :\n";
         for (auto it : m_usedInstanceLayers) {
-            LOG(INFO) << it;
+            printf(" - %s\n", it);
         }
         LOG(INFO) << "Used Instance Extensions :\n";
         for (auto it : m_usedInstanceExtensions) {
-            LOG(INFO) << it;
+            printf(" - %s\n", it);
         }
     }
 
@@ -967,7 +967,7 @@ bool Context::InitDevice(uint32_t deviceIndex, const ContextCreateInfo& info)
         LOG(INFO) << ("_____________________________");
         LOG(INFO) << ("Available Device Extensions :");
         for (auto it : extensionProperties) {
-            LOG(INFO) << Format("%s (v. %d)", it.extensionName, it.specVersion);
+            printf(" - %s (v. %d)\n", it.extensionName, it.specVersion);
         }
     }
 
@@ -982,7 +982,7 @@ bool Context::InitDevice(uint32_t deviceIndex, const ContextCreateInfo& info)
         LOG(INFO) << ("________________________");
         LOG(INFO) << ("Used Device Extensions :");
         for (auto it : m_usedDeviceExtensions) {
-            LOG(INFO) << it;
+            printf(" - %s\n", it);
         }
     }
 
