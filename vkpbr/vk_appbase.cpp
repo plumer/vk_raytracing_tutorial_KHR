@@ -19,9 +19,9 @@ void AppBase::setup(const vk::Instance& instance, const vk::Device& device,
     vk::DynamicLoader         dl;
     PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr =
         dl.getProcAddress<PFN_vkGetInstanceProcAddr>("vkGetInstanceProcAddr");
-    VULKAN_HPP_DEFAULT_DISPATCHER.Init(vkGetInstanceProcAddr);
-    VULKAN_HPP_DEFAULT_DISPATCHER.Init(instance);
-    VULKAN_HPP_DEFAULT_DISPATCHER.Init(device);
+    VULKAN_HPP_DEFAULT_DISPATCHER.init(vkGetInstanceProcAddr);
+    VULKAN_HPP_DEFAULT_DISPATCHER.init(instance);
+    VULKAN_HPP_DEFAULT_DISPATCHER.init(device);
 
     m_instance           = instance;
     m_device             = device;
@@ -572,8 +572,8 @@ void AppBase::initGUI(uint32_t subpassID)
     io.IniFilename = nullptr;  // Avoiding the INI file
     io.LogFilename = nullptr;
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
-    ImGuiH::setStyle();
-    ImGuiH::setFonts();
+    //ImGuiH::setStyle();
+    //ImGuiH::setFonts();
 
     ImGui::InitVK(m_device, m_physicalDevice, m_queue, m_graphicsQueueIndex, m_renderPass,
                   subpassID);

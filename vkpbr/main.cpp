@@ -71,7 +71,11 @@ void renderUI(HelloVulkan& helloVk)
 
         ImGui::SliderFloat3("Position", &helloVk.m_pushConstant.lightPosition.x, -20.f, 20.f);
         ImGui::SliderFloat("Intensity", &helloVk.m_pushConstant.lightIntensity, 0.f, 150.f);
+
     }
+    ImGui::SliderInt("Max Recursion Depth", &helloVk.m_rtPushConstants.max_recursion_depth, 2, 7);
+    ImGui::SliderFloat("Glass IOR", &helloVk.m_rtPushConstants.glass_ior, 0.80, 1.50);
+    ImGui::Text("%4d Accumulated Frames", helloVk.m_rtPushConstants.accumulated_frames);
 }
 
 //////////////////////////////////////////////////////////////////////////
@@ -98,7 +102,10 @@ int main(int argc, char** argv)
 
     vkpbr::CameraNavigator camera;
     camera.SetWindowSize(SAMPLE_WIDTH, SAMPLE_HEIGHT);
-    camera.SetLookAt(glm::vec3(5, 4, -4), {0, 1, 0}, {0, 1, 0});
+    //camera.SetLookAt(glm::vec3(5, 4, -4), {0, 1, 0}, {0, 1, 0});
+
+    // View parameters of Cornell-box.
+    camera.SetLookAt({278, 273, -800}, {278, 273, 0}, {0, 1, 0});
 
     // Setup Vulkan
     if (!glfwVulkanSupported()) {
@@ -145,6 +152,7 @@ int main(int argc, char** argv)
     contextInfo.AddDeviceExtension(VK_KHR_PIPELINE_LIBRARY_EXTENSION_NAME);
     contextInfo.AddDeviceExtension(VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME);
     contextInfo.AddDeviceExtension(VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME);
+    contextInfo.AddDeviceExtension(VK_KHR_SHADER_CLOCK_EXTENSION_NAME);
 
 
     // Creating Vulkan base application
@@ -179,7 +187,8 @@ int main(int argc, char** argv)
     //helloVk.loadModel(io::FindFile("media/scenes/Medieval_building.obj", defaultSearchPaths));
     //helloVk.loadModel(io::FindFile("media/scenes/plane.obj", defaultSearchPaths));
 
-    helloVk.PrepareScene();
+    //helloVk.PrepareScene();
+    helloVk.PrepareCornellBox();
 
 
     helloVk.createOffscreenRender();
@@ -221,7 +230,7 @@ int main(int argc, char** argv)
 
         // Show UI window.
         if (helloVk.showGui()) {
-            ImGuiH::Panel::Begin();
+            //ImGuiH::Panel::Begin();
             ImGui::ColorEdit3("Clear color", reinterpret_cast<float*>(&clearColor));
             ImGui::Checkbox("Ray Tracer mode", &useRaytracer);  // Switch between raster and ray
                                                                 // tracing
@@ -230,8 +239,8 @@ int main(int argc, char** argv)
             ImGui::Text("Application average %.3f ms/frame (%.1f FPS)",
                         1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
 
-            ImGuiH::Control::Info("", "", "(F10) Toggle Pane", ImGuiH::Control::Flags::Disabled);
-            ImGuiH::Panel::End();
+            //ImGuiH::Control::Info("", "", "(F10) Toggle Pane", ImGuiH::Control::Flags::Disabled);
+            //ImGuiH::Panel::End();
         }
 
         // Start rendering the scene

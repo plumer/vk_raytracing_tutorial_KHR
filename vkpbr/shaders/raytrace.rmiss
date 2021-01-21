@@ -7,10 +7,14 @@ layout(location = 0) rayPayloadInEXT hitPayload prd;
 
 layout(push_constant) uniform Constants
 {
-  vec4 clearColor;
+    vec4 clearColor;
 };
 
 void main()
 {
-  prd.hitValue = clearColor.xyz * 0.8;
+    if (prd.depth == 0)
+        prd.hitValue = clearColor.xyz * 0.01;
+    else
+        prd.hitValue = clearColor.xyz * 0.01;
+    prd.depth = 100;  // Ends path tracing.
 }

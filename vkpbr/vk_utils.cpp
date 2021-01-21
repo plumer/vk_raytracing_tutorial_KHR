@@ -794,7 +794,7 @@ bool Context::Init(const ContextCreateInfo& info)
 //
 bool Context::InitInstance(const ContextCreateInfo& info)
 {
-    VULKAN_HPP_DEFAULT_DISPATCHER.Init(vkGetInstanceProcAddr);
+    VULKAN_HPP_DEFAULT_DISPATCHER.init(vkGetInstanceProcAddr);
     CHECK(VULKAN_HPP_DEFAULT_DISPATCHER.vkEnumerateInstanceVersion);
 
     VkApplicationInfo applicationInfo{VK_STRUCTURE_TYPE_APPLICATION_INFO};
@@ -874,7 +874,7 @@ bool Context::InitInstance(const ContextCreateInfo& info)
 
     m_instance = vk::createInstance(instanceCreateInfo);
     CHECK(m_instance);
-    VULKAN_HPP_DEFAULT_DISPATCHER.Init(m_instance);
+    VULKAN_HPP_DEFAULT_DISPATCHER.init(m_instance);
 
     for (const auto& it : m_usedInstanceExtensions) {
         if (strcmp(it, VK_EXT_DEBUG_UTILS_EXTENSION_NAME) == 0) {
@@ -1122,7 +1122,7 @@ bool Context::InitDevice(uint32_t deviceIndex, const ContextCreateInfo& info)
     m_queueC = findQueue(VK_QUEUE_COMPUTE_BIT, "queueC");
     m_queueT = findQueue(VK_QUEUE_TRANSFER_BIT, "queueT");
 
-    VULKAN_HPP_DEFAULT_DISPATCHER.Init(m_instance, m_device);
+    VULKAN_HPP_DEFAULT_DISPATCHER.init(m_instance, m_device);
 
     return true;
 }
@@ -1444,8 +1444,8 @@ std::vector<int> Context::GetCompatibleDevices(const ContextCreateInfo& info)
     }
 
     if (info.verboseCompatibleDevices) {
-        LOG(INFO) << ("____________________\n");
-        LOG(INFO) << ("Compatible Devices :\n");
+        LOG(INFO) << ("____________________");
+        LOG(INFO) << ("Compatible Devices :");
     }
 
     uint32_t compatible = 0;
@@ -1459,21 +1459,21 @@ std::vector<int> Context::GetCompatibleDevices(const ContextCreateInfo& info)
             if (info.verboseCompatibleDevices) {
                 VkPhysicalDeviceProperties props;
                 vkGetPhysicalDeviceProperties(physicalDevice, &props);
-                LOG(INFO) << ("%d: %s\n", compatible, props.deviceName);
+                LOG(INFO) << Format("%d: %s\n", compatible, props.deviceName);
                 compatible++;
             }
         } else if (info.verboseCompatibleDevices) {
             VkPhysicalDeviceProperties props;
             vkGetPhysicalDeviceProperties(physicalDevice, &props);
-            LOG(WARNING) << ("Skipping physical device %s\n", props.deviceName);
+            LOG(WARNING) << Format("Skipping physical device %s", props.deviceName);
         }
     }
     if (info.verboseCompatibleDevices) {
         LOG(INFO) << Format("Physical devices found : %d", compatible);
         if (compatible > 0) {
-            LOG(INFO) << Format("%d\n", compatible);
+            ;
         } else {
-            LOG(INFO) << ("OMG... NONE !!\n");
+            LOG(INFO) << ("OMG... NONE !!");
         }
     }
 
@@ -1514,7 +1514,7 @@ bool Context::checkEntryArray(const std::vector<VkExtensionProperties>& properti
 
         if (!found && !itr.optional) {
             if (bVerbose) {
-                LOG(WARNING) << Format("Could NOT locate mandatory extension '%s'\n", itr.name);
+                LOG(WARNING) << Format("Could NOT locate mandatory extension '%s'", itr.name);
             }
             return false;
         }

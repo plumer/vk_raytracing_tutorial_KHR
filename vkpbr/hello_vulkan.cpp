@@ -238,7 +238,8 @@ void HelloVulkan::createGraphicsPipeline()
 //
 void HelloVulkan::loadModel(const std::string& filename, glm::mat4 transform)
 {
-    using vkBU = vk::BufferUsageFlagBits;
+    using vkBU   = vk::BufferUsageFlagBits;
+    using vkrtBU = vkrt::BufferUsageFlagBits;
 
     LOG(INFO) << vkpbr::Format("Loading File:  %s", filename.c_str());
     ObjLoader loader;
@@ -267,8 +268,7 @@ void HelloVulkan::loadModel(const std::string& filename, glm::mat4 transform)
     model.vertexBuffer =
         allocator_.MakeBuffer(cmdBuf, loader.m_vertices,
                               vkBU::eVertexBuffer | vkBU::eStorageBuffer
-                                  | vkBU::eShaderDeviceAddress
-                                  | vkBU::eAccelerationStructureBuildInputReadOnlyKHR);
+                                  | vkBU::eShaderDeviceAddress | vkrtBU::eBvhBuildInputReadOnly);
     model.indexBuffer =
         allocator_.MakeBuffer(cmdBuf, loader.m_indices,
                               vkBU::eIndexBuffer | vkBU::eStorageBuffer | vkBU::eShaderDeviceAddress
@@ -296,14 +296,21 @@ void HelloVulkan::loadModel(const std::string& filename, glm::mat4 transform)
 void HelloVulkan::PrepareScene()
 {
     const std::string prefix = "scenes/caustic-glass/";
-    auto glass_ply = LoadPly(io::FindFile(prefix + "geometry/mesh_00001.ply", defaultSearchPaths),
-                             /*enforce_triangle=*/true);
+    // auto glass_ply = LoadPly(io::FindFile(prefix + "geometry/mesh_00001.ply",
+    // defaultSearchPaths),
+    ///*enforce_triangle=*/true);
+    auto glass_ply = LoadObj(io::FindFile("media/scenes/cube.obj", defaultSearchPaths), true);
+    {
+        for (auto& p : glass_ply.positions) {
+            p *= glm::vec3(0.5, 2, 5);
+        }
+    }
     if (glass_ply.normals.empty())
         glass_ply.normals = ComputeNormals(glass_ply.positions, glass_ply.indices);
 
     auto plane_ply = LoadPly(io::FindFile(prefix + "geometry/mesh_00002.ply", defaultSearchPaths),
                              /*enforce_triangle=*/true);
-    { // Centers the glass ply to the origin, and places the plane right under it.
+    {  // Centers the glass ply to the origin, and places the plane right under it.
         glm::vec3 glass_min{INFINITY}, glass_max{-INFINITY};
         for (const glm::vec3& p : glass_ply.positions) {
             glass_min = glm::min(p, glass_min);
@@ -315,7 +322,7 @@ void HelloVulkan::PrepareScene()
             p -= bbox_mid;
         }
         for (auto& p : plane_ply.positions) {
-            p -= bbox_mid;
+            p.y = glass_min.y;
         }
     }
 
@@ -348,13 +355,15 @@ void HelloVulkan::PrepareScene()
         allocator_.MakeBuffer(cmd_buffer, glass_vertices,
                               vkBU::eVertexBuffer | vkBU::eStorageBuffer
                                   | vkBU::eShaderDeviceAddress | vkrtBU::eBvhBuildInputReadOnly);
-    glass_model.indexBuffer = allocator_.MakeBuffer(cmd_buffer, glass_ply.indices,
+    glass_model.indexBuffer =
+        allocator_.MakeBuffer(cmd_buffer, glass_ply.indices,
                               vkBU::eIndexBuffer | vkBU::eStorageBuffer | vkBU::eShaderDeviceAddress
                                   | vkrtBU::eBvhBuildInputReadOnly);
 
     MaterialObj glass_mtl;
-    glass_mtl.ior           = 1.25;
-    glass_mtl.transmittance = {0.0f, 0.0f, 0.0f};
+    glass_mtl.ior           = 1.01;
+    glass_mtl.transmittance = {1.0f, 1.0f, 1.0f};
+    glass_mtl.emission      = {0.0f, 0.0f, 0.0f};
     glass_mtl.textureID     = -1;
 
     std::vector<MaterialObj> mtl_wrapper = {glass_mtl};
@@ -368,15 +377,18 @@ void HelloVulkan::PrepareScene()
     plane_mtl.specular  = {0.2f, 0.2f, 0.2f};
     plane_mtl.diffuse   = {0.64f, 0.64f, 0.64f};
     plane_mtl.specular  = {0.1f, 0.1f, 0.1f};
+    plane_mtl.emission  = {0.0f, 0.0f, 0.0f};
     plane_mtl.textureID = -1;
     mtl_wrapper         = {plane_mtl};
     ObjModel plane_model;
     plane_model.nbVertices = plane_vertices.size();
     plane_model.nbIndices  = plane_ply.indices.size();
-    plane_model.vertexBuffer = allocator_.MakeBuffer(cmd_buffer, plane_vertices,
+    plane_model.vertexBuffer =
+        allocator_.MakeBuffer(cmd_buffer, plane_vertices,
                               vkBU::eVertexBuffer | vkBU::eStorageBuffer
                                   | vkBU::eShaderDeviceAddress | vkrtBU::eBvhBuildInputReadOnly);
-    plane_model.indexBuffer  = allocator_.MakeBuffer(cmd_buffer, plane_ply.indices,
+    plane_model.indexBuffer =
+        allocator_.MakeBuffer(cmd_buffer, plane_ply.indices,
                               vkBU::eIndexBuffer | vkBU::eStorageBuffer | vkBU::eShaderDeviceAddress
                                   | vkrtBU::eBvhBuildInputReadOnly);
     plane_model.matColorBuffer =
@@ -396,6 +408,125 @@ void HelloVulkan::PrepareScene()
     m_objInstance.push_back(glass_instance);
     m_objInstance.push_back(plane_instance);
 
+    createTextureImages(cmd_buffer, {});
+
+    cmd_pool.SubmitAndWait(cmd_buffer);
+    allocator_.ReleaseAllStagingBuffers();
+}
+
+void HelloVulkan::PrepareCornellBox()
+{
+    std::vector<glm::vec3> positions;
+    MaterialObj            mtl;
+
+    using vkBU   = vk::BufferUsageFlagBits;
+    using vkrtBU = vkrt::BufferUsageFlagBits;
+
+    auto AddMesh = [this](const std::vector<glm::vec3>& positions, const std::vector<int>& indices,
+                          const MaterialObj& mtl, vk::CommandBuffer cmd_buffer) {
+        ObjModel                 model;
+        std::vector<MaterialObj> mtl_wrapper = {mtl};
+        std::vector<int>         mtl_indices = {0};
+
+        std::vector<VertexObj> vertex_data;
+        // In the Cornell Box scene, all triangles are in the same plane.
+        std::vector<glm::vec3> normals = ComputeNormals(positions, indices);
+        for (int i = 0; i < positions.size(); ++i) {
+            VertexObj v;
+            v.pos = nvmath::vec3f{positions[i].x, positions[i].y, positions[i].z};
+            v.nrm = nvmath::vec3f{normals[i].x, normals[i].y, normals[i].z};
+            vertex_data.push_back(v);
+        }
+
+        model.nbVertices     = positions.size();
+        model.nbIndices      = indices.size();
+        model.vertexBuffer   = allocator_.MakeBuffer(cmd_buffer, vertex_data,
+                                                   vkBU::eVertexBuffer | vkBU::eStorageBuffer
+                                                       | vkBU::eShaderDeviceAddress
+                                                       | vkrtBU::eBvhBuildInputReadOnly);
+        model.indexBuffer    = allocator_.MakeBuffer(cmd_buffer, indices,
+                                                  vkBU::eIndexBuffer | vkBU::eStorageBuffer
+                                                      | vkBU::eShaderDeviceAddress
+                                                      | vkrtBU::eBvhBuildInputReadOnly);
+        model.matColorBuffer = allocator_.MakeBuffer(cmd_buffer, mtl_wrapper, vkBU::eStorageBuffer);
+        model.matIndexBuffer = allocator_.MakeBuffer(cmd_buffer, mtl_indices, vkBU::eStorageBuffer);
+        m_objModel.push_back(model);
+    };
+
+    vkpbr::CommandPool cmd_pool(m_device, m_graphicsQueueIndex);
+    auto               cmd_buffer = cmd_pool.MakeCmdBuffer();
+
+    // light
+    positions = {
+        {343.0, 548.8, 227.0}, {343.0, 548.8, 332.0}, {213.0, 548.8, 332.0}, {213.0, 548.8, 227.0}};
+    for (auto& p : positions)
+        p.y -= 0.8;
+    mtl.diffuse  = {1.0, 1.0, 1.0};
+    mtl.emission = {10.0, 10.0, 10.0};
+    AddMesh(positions, {0, 1, 2, 0, 2, 3}, mtl, cmd_buffer);
+
+    {  // Floor, back wall and ceiling. Share the same material.
+        positions = {{552.8, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 559.2}, {549.6, 0.0, 559.2}};
+
+        mtl.diffuse  = {1.0, 1.0, 1.0};
+        mtl.emission = {0.0, 0.0, 0.0};
+        AddMesh(positions, {0, 1, 2, 0, 2, 3}, mtl, cmd_buffer);
+
+        // ceiling
+        positions = {
+            {556.0, 548.8, 0.0}, {556.0, 548.8, 559.2}, {0.0, 548.8, 559.2}, {0.0, 548.8, 0.0}};
+        AddMesh(positions, {0, 1, 2, 0, 2, 3}, mtl, cmd_buffer);
+        // back wall
+        positions = {
+            {549.6, 0.0, 559.2}, {0.0, 0.0, 559.2}, {0.0, 548.8, 559.2}, {556.0, 548.8, 559.2}};
+
+        AddMesh(positions, {0, 1, 2, 0, 2, 3}, mtl, cmd_buffer);
+    }
+
+    // right wall
+    positions = {{0.0, 0.0, 559.2}, {0.0, 0.0, 0.0}, {0.0, 548.8, 0.0}, {0.0, 548.8, 559.2}};
+    mtl.diffuse = {0.1, 0.9, 0.1};
+    AddMesh(positions, {0, 1, 2, 0, 2, 3}, mtl, cmd_buffer);
+    // left wall
+    positions = {
+        {552.8, 0.0, 0.0}, {549.6, 0.0, 559.2}, {556.0, 548.8, 559.2}, {556.0, 548.8, 0.0}};
+    mtl.diffuse = {0.9, 0.1, 0.1};
+    AddMesh(positions, {0, 1, 2, 0, 2, 3}, mtl, cmd_buffer);
+
+    // short block and tall block both are white
+    mtl.diffuse = {1.0, 1.0, 1.0};
+    // short block
+    positions = {{130.0, 165.0, 65.0},  {82.0, 165.0, 225.0},  {240.0, 165.0, 272.0},
+                 {290.0, 165.0, 114.0}, {290.0, 0.0, 114.0},   {290.0, 165.0, 114.0},
+                 {240.0, 165.0, 272.0}, {240.0, 0.0, 272.0},   {130.0, 0.0, 65.0},
+                 {130.0, 165.0, 65.0},  {290.0, 165.0, 114.0}, {290.0, 0.0, 114.0},
+                 {82.0, 0.0, 225.0},    {82.0, 165.0, 225.0},  {130.0, 165.0, 65.0},
+                 {130.0, 0.0, 65.0},    {240.0, 0.0, 272.0},   {240.0, 165.0, 272.0},
+                 {82.0, 165.0, 225.0},  {82.0, 0.0, 225.0}};
+    for (int i = 0; i < positions.size(); i += 4) {
+        std::vector<glm::vec3> face_positions;
+        face_positions.assign(positions.begin() + i, positions.begin() + i + 4);
+        AddMesh(face_positions, {0, 1, 2, 0, 2, 3}, mtl, cmd_buffer);
+    }
+    // tall block
+    positions = {{423.0, 330.0, 247.0}, {265.0, 330.0, 296.0}, {314.0, 330.0, 456.0},
+                 {472.0, 330.0, 406.0}, {423.0, 0.0, 247.0},   {423.0, 330.0, 247.0},
+                 {472.0, 330.0, 406.0}, {472.0, 0.0, 406.0},   {472.0, 0.0, 406.0},
+                 {472.0, 330.0, 406.0}, {314.0, 330.0, 456.0}, {314.0, 0.0, 456.0},
+                 {314.0, 0.0, 456.0},   {314.0, 330.0, 456.0}, {265.0, 330.0, 296.0},
+                 {265.0, 0.0, 296.0},   {265.0, 0.0, 296.0},   {265.0, 330.0, 296.0},
+                 {423.0, 330.0, 247.0}, {423.0, 0.0, 247.0}};
+    for (int i = 0; i < positions.size(); i += 4) {
+        std::vector<glm::vec3> face_positions;
+        face_positions.assign(positions.begin() + i, positions.begin() + i + 4);
+        AddMesh(face_positions, {0, 1, 2, 0, 2, 3}, mtl, cmd_buffer);
+    }
+
+    for (int i = 0; i < m_objModel.size(); ++i) {
+        ObjInstance instance;
+        instance.objIndex = i;
+        m_objInstance.push_back(instance);
+    }
     createTextureImages(cmd_buffer, {});
 
     cmd_pool.SubmitAndWait(cmd_buffer);
@@ -976,7 +1107,7 @@ void HelloVulkan::createRtPipeline()
     // In this case, m_rtShaderGroups.size() == 4: we have 1 raygen group, 2 miss shader groups, and
     // one hit group.
     rayPipelineInfo.setGroups(m_rtShaderGroups);
-    rayPipelineInfo.setMaxPipelineRayRecursionDepth(2);  // Ray depth
+    rayPipelineInfo.setMaxPipelineRayRecursionDepth(8);  // Ray depth
     rayPipelineInfo.setLayout(m_rtPipelineLayout);
     m_rtPipeline = m_device.createRayTracingPipelineKHR({}, {}, rayPipelineInfo).value;
 
@@ -1048,6 +1179,8 @@ void HelloVulkan::createRtShaderBindingTable()
 //
 void HelloVulkan::raytrace(const vk::CommandBuffer& cmdBuf, const glm::vec4& clearColor)
 {
+    UpdateFrame();
+
     m_debug.beginLabel(cmdBuf, "Ray trace");
     // Initializing push constant values
     m_rtPushConstants.clearColor     = clearColor;
@@ -1071,16 +1204,36 @@ void HelloVulkan::raytrace(const vk::CommandBuffer& cmdBuf, const glm::vec4& cle
     vk::DeviceAddress sbtAddress  = m_device.getBufferAddress({m_rtSBTBuffer.handle});
 
     using Stride = vk::StridedDeviceAddressRegionKHR;
-    std::array<Stride, 4> strideAddresses{
+    std::array<Stride, 4> stride_addrs{
         Stride{sbtAddress + 0u * groupSize, groupStride, groupSize * 1},  // raygen
         Stride{sbtAddress + 1u * groupSize, groupStride, groupSize * 2},  // miss
         Stride{sbtAddress + 3u * groupSize, groupStride, groupSize * 1},  // hit
         Stride{0u, 0u, 0u}};                                              // callable
 
-    cmdBuf.traceRaysKHR(&strideAddresses[0], &strideAddresses[1], &strideAddresses[2],
-                        &strideAddresses[3],              //
-                        m_size.width, m_size.height, 1);  //
-
+    cmdBuf.traceRaysKHR(&stride_addrs[0], &stride_addrs[1], &stride_addrs[2], &stride_addrs[3],
+                        m_size.width, m_size.height, 1);
 
     m_debug.endLabel(cmdBuf);
+}
+
+void HelloVulkan::UpdateFrame()
+{
+    static glm::mat4 cached_camera_view{1.0f};
+    static float     cached_camera_fov{60.0f};
+
+    glm::mat4 current_view = camera_->ViewMatrix();
+    float     current_fov  = camera_->Fov();
+
+    if (current_view == cached_camera_view && cached_camera_fov == current_fov) {
+        ++m_rtPushConstants.accumulated_frames;
+    } else {
+        ResetFrame();
+        cached_camera_view = current_view;
+        cached_camera_fov  = current_fov;
+    }
+}
+
+void HelloVulkan::ResetFrame()
+{
+    m_rtPushConstants.accumulated_frames = -1;
 }

@@ -65,6 +65,7 @@ class HelloVulkan : public vkpbr::AppBase
     void loadModel(const std::string& filename, glm::mat4 transform = glm::mat4(1));
     // Prepares the scene with a few pre-defined models and materials
     void PrepareScene();
+    void PrepareCornellBox();
 
     // The OBJ model
     struct ObjModel {
@@ -161,10 +162,22 @@ class HelloVulkan : public vkpbr::AppBase
     vk::Pipeline              m_rtPipeline;
     vkpbr::UniqueMemoryBuffer m_rtSBTBuffer;
 
+    /**
+     * \brief Increments the frame if the camera pose + FOV doesn't change, otherwise refreshes the
+     * camera view matrix cache and resets frame count.
+     */
+    void UpdateFrame();
+
+    /** Resets frame count to -1. Frame count is stored in RT push constants. */
+    void ResetFrame();
+
     struct RtPushConstant {
         glm::vec4 clearColor;
         glm::vec3 lightPosition;
         float     lightIntensity;
         int       lightType;
+        int       accumulated_frames = -1;
+        int       max_recursion_depth = 3;
+        float     glass_ior           = 1.0;
     } m_rtPushConstants;
 };

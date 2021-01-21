@@ -34,11 +34,11 @@ Base functionality of raytracing
 
 This class acts as an owning container for a single top-level acceleration
 structure referencing any number of bottom-level acceleration structures.
-We provide functions for building (on the device) an array of BLBvhs and a
-single TLBvh from vectors of BlasInput and Instance, respectively, and
+We provide functions for building (on the device) an array of BLASs and a
+single TLAS from vectors of BlasInput and Instance, respectively, and
 a destroy function for cleaning up the created acceleration structures.
 
-Generally, we reference BLBvhs by their index in the stored BLBvh array,
+Generally, we reference BLASs by their index in the stored BLAS array,
 rather than using raw device pointers as the pure Vulkan acceleration
 structure API uses.
 
@@ -94,7 +94,7 @@ struct RaytracingBuilderKHR {
     // Inputs used to build Bottom-level acceleration structure.
     // You manage the lifetime of the buffer(s) referenced by the
     // VkAccelerationStructureGeometryKHRs within. In particular, you must
-    // make sure they are still valid and not being modified when the BLBvh
+    // make sure they are still valid and not being modified when the BLAS
     // is built or updated.
     struct BlasInput {
         // Data used to build acceleration structure geometry
@@ -129,9 +129,9 @@ struct RaytracingBuilderKHR {
 
     void setup(const vk::Device& device, UniqueMemoryAllocator* allocator, uint32_t queueIndex);
 
-    // This is an instance of a BLBvh
+    // This is an instance of a BLAS
     struct Instance {
-        uint32_t                     blasId{0};      // Index of the BLBvh in m_blas
+        uint32_t                     blasId{0};      // Index of the BLAS in m_blas
         uint32_t                     instanceId{0};  // Instance Index (gl_InstanceID)
         uint32_t                     hitGroupId{0};  // Hit group index in the SBT
         uint32_t                     mask{0xFF};  // Visibility mask, will be AND-ed with ray mask
@@ -150,14 +150,13 @@ struct RaytracingBuilderKHR {
     vk::AccelerationStructureKHR getAccelerationStructure() const { return m_tlas.as.handle; }
 
     //--------------------------------------------------------------------------------------------------
-    // Create all the BLBvh from the vector of BlasInput
-    // - There will be one BLBvh per input-vector entry
-    // - There will be as many BLBvh as input.size()
-    // - The resulting BLBvh (along with the inputs used to build) are stored in m_blas,
-    //   and can be referenced by index.
-
+    // Create all the BLAS from the vector of BlasInput
+    // - There will be one BLAS per input-vector entry
+    // - There will be as many BLAS as input.size()
+    // - The resulting BLAS (along with the inputs used to build) are stored in m_blas,
+    //   and can be referenced by index
     void buildBlas(const std::vector<RaytracingBuilderKHR::BlasInput>& input,
-                   vk::BuildAccelerationStructureFlagsKHR                  flags =
+                   vk::BuildAccelerationStructureFlagsKHR              flags =
                        vk::BuildAccelerationStructureFlagBitsKHR::ePreferFastTrace);
 
 
@@ -170,7 +169,7 @@ struct RaytracingBuilderKHR {
     //--------------------------------------------------------------------------------------------------
     // Creating the top-level acceleration structure from the vector of Instance
     // - See struct of Instance
-    // - The resulting TLBvh will be stored in m_tlas
+    // - The resulting TLAS will be stored in m_tlas
     // - update is to rebuild the Tlas with updated matrices
     void buildTlas(const std::vector<Instance>&       instances,
                    vk::BuildAccelerationStructureFlagsKHR flags =
@@ -178,7 +177,7 @@ struct RaytracingBuilderKHR {
                    bool update = false);
 
     //--------------------------------------------------------------------------------------------------
-    // Refit BLBvh number blasIdx from updated buffer contents.
+    // Refit BLAS number blasIdx from updated buffer contents.
     //
     void updateBlas(uint32_t blasIdx);
 
@@ -190,11 +189,11 @@ struct RaytracingBuilderKHR {
     };
 
     //--------------------------------------------------------------------------------------------------
-    // Vector containing all the BLBvhes built in buildBlas (and referenced by the TLBvh)
+    // Vector containing all the BLASes built in buildBlas (and referenced by the TLAS)
     std::vector<BlasEntry> m_blas;
     // Top-level acceleration structure
     Tlas m_tlas;
-    // Instance buffer containing the matrices and BLBvh ids
+    // Instance buffer containing the matrices and BLAS ids
     vkpbr::UniqueMemoryBuffer m_instBuffer;
 
     vk::Device m_device;

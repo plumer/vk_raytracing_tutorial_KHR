@@ -84,8 +84,12 @@ std::vector<std::string> split(const std::string& s, char delimiter);
 
 vkpbr::PlyMesh LoadObj(const std::string& filename, bool enforce_triangle)
 {
-    std::vector<glm::vec3> vertices;
-    std::vector<int>       indices;
+    std::vector<glm::vec3> positions;
+    std::vector<glm::vec3> normals;
+    std::vector<glm::vec2> texture_uvs;
+    std::vector<int>       position_indices;
+    std::vector<int>       normal_indices;
+    std::vector<int>       uv_indices;
 
     std::ifstream objFile;
     objFile.open(filename, std::ios::in);
@@ -100,47 +104,121 @@ vkpbr::PlyMesh LoadObj(const std::string& filename, bool enforce_triangle)
             continue;  // comment line
         if (words[0] == "v") {
             assert(words.size() == 4);
-            float x = std::atof(words[1].c_str());
-            float y = std::atof(words[2].c_str());
-            float z = std::atof(words[3].c_str());
-            vertices.push_back(glm::vec3{x, y, z});
+            double x = std::atof(words[1].c_str());
+            double y = std::atof(words[2].c_str());
+            double z = std::atof(words[3].c_str());
+            positions.push_back(glm::vec3{cast_f32(x), cast_f32(y), cast_f32(z)});
+        } else if (words[0] == "vn") {
+            CHECK_EQ(words.size(), 4);
+            double x = std::atof(words[1].c_str());
+            double y = std::atof(words[2].c_str());
+            double z = std::atof(words[3].c_str());
+            normals.push_back(glm::vec3{cast_f32(x), cast_f32(y), cast_f32(z)});
+        } else if (words[0] == "vt") {
+            CHECK_GE(words.size(), 3); // Some .obj files have 3 components.
+            double x = std::atof(words[1].c_str());
+            double y = std::atof(words[2].c_str());
+            texture_uvs.push_back(glm::vec2{cast_f32(x), cast_f32(y)});
         } else if (words[0] == "f") {
-            std::vector<int> faceIndices;
-            faceIndices.reserve(words.size() - 1);
+            std::vector<int> face_indices, face_uv_indices, face_normal_indices;
+            face_indices.reserve(words.size() - 1);
             for (size_t i = 1; i < words.size(); ++i) {
-                int index = std::atoi(words[i].c_str());
-                faceIndices.push_back(index);
+                auto index_group = split(words[i], '/');
+                CHECK(!index_group.empty());
+                int index = std::atoi(index_group[0].c_str());
+                
+                face_indices.push_back(index);
+                if (index_group.size() > 1 && !index_group[1].empty())
+                    face_uv_indices.push_back(std::atoi(index_group[1].c_str()));
+                if (index_group.size() > 2 && !index_group[2].empty())
+                    face_normal_indices.push_back(std::atoi(index_group[2].c_str()));
             }
-            if (enforce_triangle && faceIndices.size() > 3) {
-                decltype(faceIndices) triangleIndices;
-                triangleIndices.reserve((faceIndices.size() - 2) * 3);
+            if (enforce_triangle && face_indices.size() > 3) {
+                // If the face specifies more than 3 vertices, then tesselates the polygon.
+                // Assuming the polygon is convex.
+                decltype(face_indices) triangle_indices;
+                triangle_indices.reserve((face_indices.size() - 2) * 3);
                 // if there are 6 vertices, then the first triangle is [0, 1, 2], the last is [0, 4,
                 // 5].
-                for (size_t i = 1; i < faceIndices.size() - 1; ++i) {
-                    triangleIndices.push_back(faceIndices[0]);
-                    triangleIndices.push_back(faceIndices[i]);
-                    triangleIndices.push_back(faceIndices[i + 1]);
+                for (size_t i = 1; i < face_indices.size() - 1; ++i) {
+                    triangle_indices.push_back(face_indices[0]);
+                    triangle_indices.push_back(face_indices[i]);
+                    triangle_indices.push_back(face_indices[i + 1]);
                 }
-                std::swap(triangleIndices, faceIndices);
+                std::swap(triangle_indices, face_indices);
             }
-            indices.insert(indices.end(), faceIndices.begin(), faceIndices.end());
+            LOG_IF(FATAL, face_indices.size() > 3) << "More than 3 vertices per 'f' line is not "
+                                                      "supported yet";
+            if (!face_uv_indices.empty())
+                CHECK_EQ(face_indices.size(), face_uv_indices.size());
+            if (!face_normal_indices.empty())
+                CHECK_EQ(face_indices.size(), face_normal_indices.size());
+
+            // Appends the indices of the current face to the whole set of indices.
+            position_indices.insert(position_indices.end(), face_indices.begin(),
+                                    face_indices.end());
+            normal_indices.insert(normal_indices.end(), face_normal_indices.begin(),
+                                  face_normal_indices.end());
+            uv_indices.insert(uv_indices.end(), face_uv_indices.begin(), face_uv_indices.end());
         } else {
             std::cerr << "unhandled line starting with \'" << words[0] << "\'" << std::endl;
         }
     }
+    if (!normal_indices.empty())
+        CHECK_EQ(position_indices.size(), normal_indices.size());
+    if (!uv_indices.empty())
+        CHECK_EQ(position_indices.size(), uv_indices.size());
+    int nPoints = positions.size();
+    for (std::vector<int>* indices_array : {&position_indices, &normal_indices, &uv_indices})
+        for (int& index : *indices_array) {
+            if (index < 0)
+                index += nPoints;  // [-nPoints, -1]
+            else
+                index--;  // Indices in .obj files starts from 1, so decrement it by 1.
+        }
 
-    int nPoints = vertices.size();
-    for (int& index : indices) {
-        // suppose nPoints is 8
-        if (index < 0)
-            index += nPoints;  // [-nPoints, -1]
-        else
-            index--;  // now index is [1, nPoints], decrement it.
+    // If the non-empty normal/uv indices aren't identical to the position indices, we'll have to
+    // re-index the data. For example, if the .obj file specify things like this:
+    //
+    //     f 30/30/30  31/31/31  35/35/35
+    // 
+    // all across the entire file (every triplet has the 3 same indices), then the indexing is
+    // uniform and there's no need for re-indexing. Otherwise (a rather obsolete file structure for
+    // .obj files), geometry data arrays (position/uv/normal) are replaced by indexed values.
+    bool nonuniform_indexing = false;
+    if (!normal_indices.empty())
+        nonuniform_indexing |= (normal_indices != position_indices);
+    if (!uv_indices.empty())
+        nonuniform_indexing |= (uv_indices != position_indices);
+
+    if (nonuniform_indexing) {
+        decltype(positions) reindexed_positions;
+
+        decltype(texture_uvs) reindexed_uvs;
+        decltype(normals) reindexed_normals;
+
+        decltype(position_indices) identity_indices;
+
+        for (size_t i = 0; i < position_indices.size(); ++i) {
+            reindexed_positions.push_back(positions[position_indices[i]]);
+            if (!uv_indices.empty())
+                reindexed_uvs.push_back(texture_uvs[uv_indices[i]]);
+            if (!normal_indices.empty())
+                reindexed_normals.push_back(normals[normal_indices[i]]);
+            identity_indices.push_back(i);
+        }
+
+        std::swap(reindexed_normals, normals);
+        std::swap(reindexed_uvs, texture_uvs);
+        std::swap(reindexed_positions, positions);
+        std::swap(identity_indices, position_indices);
     }
 
     vkpbr::PlyMesh res;
-    res.positions = std::move(vertices);
-    res.indices   = std::move(indices);
+    res.positions   = std::move(positions);
+    res.texture_uvs = std::move(texture_uvs);
+    res.normals     = std::move(normals);
+    res.indices     = std::move(position_indices);
     return res;
 }
 
