@@ -20,7 +20,7 @@ struct WaveFrontMaterial
   int   textureId;
 };
 
-struct sceneDesc
+struct Instance
 {
   int  objId;
   int  txtOffset;

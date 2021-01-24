@@ -54,6 +54,8 @@ class HelloVulkan : public vkpbr::AppBase
     void createGraphicsPipeline();
     void updateDescriptorSet();
     void createUniformBuffer();
+
+    // Makes a shader storage buffer using m_objInstance as the content.
     void createSceneDescriptionBuffer();
     void createTextureImages(const vk::CommandBuffer&        cmdBuf,
                              const std::vector<std::string>& textures);
@@ -163,8 +165,8 @@ class HelloVulkan : public vkpbr::AppBase
     vkpbr::UniqueMemoryBuffer m_rtSBTBuffer;
 
     /**
-     * \brief Increments the frame if the camera pose + FOV doesn't change, otherwise refreshes the
-     * camera view matrix cache and resets frame count.
+     * \brief Increments the frame if the camera pose + FOV + framebuffer size don't change,
+     * otherwise refreshes the camera view matrix / windows size cache and resets frame count.
      */
     void UpdateFrame();
 

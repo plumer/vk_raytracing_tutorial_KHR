@@ -14,14 +14,24 @@ layout(location = 0) rayPayloadInEXT hitPayload payload_in;
 layout(location = 1) rayPayloadEXT bool isShadowed;
 
 layout(binding = 0, set = 0) uniform accelerationStructureEXT topLevelAS;
-layout(binding = 1, set = 1, scalar) buffer MatColorBufferObject { WaveFrontMaterial m[]; } materials[];
-layout(binding = 2, set = 1, scalar) buffer ScnDesc { sceneDesc i[]; } scnDesc;
-layout(binding = 3, set = 1) uniform sampler2D textureSamplers[];
-layout(binding = 4, set = 1)  buffer MatIndexColorBuffer { int i[]; } matIndex[];
-layout(binding = 5, set = 1, scalar) buffer Vertices { Vertex v[]; } vertices[];
-layout(binding = 6, set = 1) buffer Indices { uint i[]; } indices[];
 
-// clang-format on
+layout(binding = 1, set = 1, scalar) buffer MatColorBufferObject { WaveFrontMaterial m[]; } materials[];
+
+// Stores information for all object instances in the scene.
+// Can be indexed by gl_InstanceID.
+layout(binding = 2, set = 1, scalar) buffer ScnDesc { Instance instances[]; } scene;
+
+layout(binding = 3, set = 1) uniform sampler2D textureSamplers[];
+
+// For all object models, stores an index to materials (DS binding 1) for each *primitive*.
+// The size of the array for each model (aka i) is 1/3 of that of vertices[].v.
+layout(binding = 4, set = 1)  buffer MatIndexColorBuffer { int i[]; } matIndex[];
+// Stores vertex data for the object mesh, for all objects.
+// `v` can be indexed through `indices` at DS binding 6.
+layout(binding = 5, set = 1, scalar) buffer Vertices { Vertex v[]; } vertices[];
+
+// Triangle indices to vertex data for all object model.
+layout(binding = 6, set = 1) buffer Indices { uint i[]; } indices[];
 
 layout(push_constant) uniform Constants
 {
@@ -35,15 +45,27 @@ layout(push_constant) uniform Constants
 }
 pushC;
 
+// Built-in variables used:
+// ------------------------------------------------------------------------------------------------
+
+// gl_InstanceID is available in the intersection, any-hit, and closest-hit
+// shaders to specify the index of the _instance_ that intersects the current ray. 
 // The gl_InstanceID is the index of the intersected instance as it appeared in the array of
 // instances used to build the TLAS.
+
+// nonuniformEXT - added _keyword_ to the GLSL language
+// This is required by the Vulkan API to be used when indexing descriptor
+// bindings with an index that is not dynamically uniform.
+
+// gl_PrimitiveID - intersection, any-hit and closest-hit shaders
+// Specifies the index of the triangle or bounding box being processed.
 
 void main()
 {
     // Obtains geometric information of the hit point: position, normal, incident light direction.
     // -------------------------------------------------------------------------------------------
     // Object of this instance
-    uint objId = scnDesc.i[gl_InstanceID].objId;
+    uint objId = scene.instances[gl_InstanceID].objId;
 
     // Indices of the triangle
     ivec3 ind = ivec3(indices[nonuniformEXT(objId)].i[3 * gl_PrimitiveID + 0],   //
@@ -59,13 +81,13 @@ void main()
     // Computing the normal at hit position
     vec3 normal = v0.nrm * barycentrics.x + v1.nrm * barycentrics.y + v2.nrm * barycentrics.z;
     // Transforming the normal to world space
-    normal = normalize(vec3(scnDesc.i[gl_InstanceID].transfoIT * vec4(normal, 0.0)));
+    normal = normalize(vec3(scene.instances[gl_InstanceID].transfoIT * vec4(normal, 0.0)));
 
 
     // Computing the coordinates of the hit position
     vec3 worldPos = v0.pos * barycentrics.x + v1.pos * barycentrics.y + v2.pos * barycentrics.z;
     // Transforming the position to world space
-    worldPos = vec3(scnDesc.i[gl_InstanceID].transfo * vec4(worldPos, 1.0));
+    worldPos = vec3(scene.instances[gl_InstanceID].transfo * vec4(worldPos, 1.0));
 
     // Vector toward the light
     vec3  L;

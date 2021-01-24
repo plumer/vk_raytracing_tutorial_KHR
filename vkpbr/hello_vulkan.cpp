@@ -1220,16 +1220,21 @@ void HelloVulkan::UpdateFrame()
 {
     static glm::mat4 cached_camera_view{1.0f};
     static float     cached_camera_fov{60.0f};
+    static glm::ivec2 cached_framebuffer_size;
 
+    glm::ivec2 current_framebuffer_size;
+    glfwGetFramebufferSize(m_window, &current_framebuffer_size.x, &current_framebuffer_size.y);
     glm::mat4 current_view = camera_->ViewMatrix();
     float     current_fov  = camera_->Fov();
 
-    if (current_view == cached_camera_view && cached_camera_fov == current_fov) {
+    if (current_view == cached_camera_view && cached_camera_fov == current_fov
+        && cached_framebuffer_size == current_framebuffer_size) {
         ++m_rtPushConstants.accumulated_frames;
     } else {
         ResetFrame();
         cached_camera_view = current_view;
         cached_camera_fov  = current_fov;
+        cached_framebuffer_size = current_framebuffer_size;
     }
 }
 

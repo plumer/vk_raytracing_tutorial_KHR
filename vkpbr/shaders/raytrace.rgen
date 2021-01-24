@@ -72,7 +72,7 @@ void main()
                     0               // payload (location = 0)
         );
 
-        hit_value += prd.hitValue * current_weight;+
+        hit_value += prd.hitValue * current_weight;
         current_weight *= prd.weight;
     }
 
