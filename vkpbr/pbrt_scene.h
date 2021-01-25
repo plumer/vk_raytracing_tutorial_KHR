@@ -19,6 +19,18 @@ struct PlyMesh {
     size_t                 material_index = cast_u64(-1);
 };
 
+/** 
+ * @brief Stores the geometric data for a Vertex.
+ * A triangular mesh can be represented with an array of objects of this structure, paired with
+ * an array of triangle indices. 
+ * \see PlyMesh for a different usage.
+ */
+struct VertexData {
+    glm::vec3 position;
+    glm::vec3 normal;
+    glm::vec2 texture_uv;
+};
+
 struct MeshInstance {
     size_t    mesh_index     = -1;
     size_t    material_index = -1;

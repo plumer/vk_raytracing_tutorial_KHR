@@ -80,6 +80,32 @@ vkpbr::PlyMesh LoadTriangleMeshBVH(const std::string& file_name, const glm::mat4
     return mesh_data;
 }
 
+std::pair<std::vector<vkpbr::VertexData>, std::vector<int>> ToArrayOfStructures(
+    const vkpbr::PlyMesh & ply_mesh)
+{
+    return std::make_pair(Interleave(ply_mesh.positions, ply_mesh.normals, ply_mesh.texture_uvs),
+                          ply_mesh.indices);
+}
+
+std::vector<vkpbr::VertexData> Interleave(const std::vector<glm::vec3>& positions,
+                                          const std::vector<glm::vec3>& normals,
+                                          const std::vector<glm::vec2>& texture_uvs)
+{
+    CHECK_EQ(positions.size(), normals.size());
+
+    std::vector<vkpbr::VertexData> vertex_attributes;
+    for (int i = 0; i < positions.size(); ++i) {
+        vkpbr::VertexData v;
+        v.position = positions[i];
+        v.normal   = normals[i];
+        if (!texture_uvs.empty())
+            v.texture_uv = texture_uvs[i];
+
+        vertex_attributes.push_back(v);
+    }
+    return vertex_attributes;
+}
+
 std::vector<std::string> split(const std::string& s, char delimiter);
 
 vkpbr::PlyMesh LoadObj(const std::string& filename, bool enforce_triangle)
@@ -168,11 +194,11 @@ vkpbr::PlyMesh LoadObj(const std::string& filename, bool enforce_triangle)
         CHECK_EQ(position_indices.size(), normal_indices.size());
     if (!uv_indices.empty())
         CHECK_EQ(position_indices.size(), uv_indices.size());
-    int nPoints = positions.size();
+    int num_points = cast_i32(positions.size());
     for (std::vector<int>* indices_array : {&position_indices, &normal_indices, &uv_indices})
         for (int& index : *indices_array) {
             if (index < 0)
-                index += nPoints;  // [-nPoints, -1]
+                index += num_points;  // [-nPoints, -1]
             else
                 index--;  // Indices in .obj files starts from 1, so decrement it by 1.
         }
@@ -205,7 +231,7 @@ vkpbr::PlyMesh LoadObj(const std::string& filename, bool enforce_triangle)
                 reindexed_uvs.push_back(texture_uvs[uv_indices[i]]);
             if (!normal_indices.empty())
                 reindexed_normals.push_back(normals[normal_indices[i]]);
-            identity_indices.push_back(i);
+            identity_indices.push_back(cast_i32(i));
         }
 
         std::swap(reindexed_normals, normals);
@@ -390,11 +416,11 @@ vkpbr::PlyMesh LoadPly(const std::string& filename, bool enforce_triangle)
     // >>>>>>>>>> Organize the data from vertex buffer to mesh data >>>>>>>>>>>
 
     // counted in number of components, not bytes
-    int  stride    = vertex_attrib_names.size();
-    auto van_begin = vertex_attrib_names.cbegin(), van_end = vertex_attrib_names.cend();
+    size_t  stride    = vertex_attrib_names.size();
+    //auto van_begin = vertex_attrib_names.cbegin(), van_end = vertex_attrib_names.cend();
     int  offset_px = -1, offset_py = -1, offset_pz = -1, offset_nx = -1, offset_ny = -1,
         offset_nz = -1, offset_u = -1, offset_v = -1;
-    for (int i = 0; i < stride; ++i) {
+    for (size_t i = 0; i < stride; ++i) {
         if (vertex_attrib_names[i] == "x")
             offset_px = i;
         if (vertex_attrib_names[i] == "y")
@@ -416,7 +442,7 @@ vkpbr::PlyMesh LoadPly(const std::string& filename, bool enforce_triangle)
     bool has_normal = offset_nx >= 0 && offset_ny >= 0 && offset_nz >= 0;
     bool has_texuv  = offset_u >= 0 && offset_v >= 0;
     auto res        = vkpbr::PlyMesh();
-    for (int base = 0; base < vertex_buffer.size(); base += stride) {
+    for (size_t base = 0; base < vertex_buffer.size(); base += stride) {
         glm::vec3 pos;
         glm::vec3 normal;
         glm::vec2 uv;
@@ -455,11 +481,11 @@ std::vector<glm::vec3> compute_normals(const std::vector<glm::vec3>& positions,
                                        const std::vector<int>&       tri_indices)
 {
     std::vector<glm::vec3> res;
-    const int              num_triangles = tri_indices.size() / 3;
+    const size_t              num_triangles = tri_indices.size() / 3;
     CHECK_EQ(num_triangles * 3, tri_indices.size());
     std::vector<std::vector<glm::vec3>> builder;
     builder.resize(positions.size());
-    for (int tri_i = 0; tri_i < num_triangles; ++tri_i) {
+    for (size_t tri_i = 0; tri_i < num_triangles; ++tri_i) {
         int i0 = tri_indices[tri_i * 3 + 0], i1 = tri_indices[tri_i * 3 + 1],
             i2       = tri_indices[tri_i * 3 + 2];
         glm::vec3 t0 = positions[i0], t1 = positions[i1], t2 = positions[i2];
@@ -470,11 +496,6 @@ std::vector<glm::vec3> compute_normals(const std::vector<glm::vec3>& positions,
     }
 
     res.resize(positions.size());
-    // std::transform(builder.begin(), builder.end(), res.begin(),
-    //               [](const std::vector<vec3>& c) -> glm::vec3 {
-    //                   auto sum = std::accumulate(c.begin(), c.end(), vec3(0, 0, 0));
-    //                   return glm::vec3(sum.normalized());
-    //               });
 
     for (int i = 0; i < builder.size(); ++i) {
         const auto& candidates = builder[i];
@@ -492,11 +513,10 @@ std::vector<glm::vec3> ComputeNormals(const std::vector<glm::vec3>& positions,
                                       const std::vector<int>&       indices)
 {
     std::vector<glm::vec3>              normals;
-    std::vector<std::vector<glm::vec3>> normal_builder;
     CHECK_EQ(indices.size() % 3, 0);
 
     normals.resize(positions.size(), glm::vec3(0, 0, 0));
-    for (int i = 0; i < indices.size(); i += 3) {
+    for (size_t i = 0; i < indices.size(); i += 3) {
         glm::vec3 p0 = positions[indices[i + 0]];
         glm::vec3 p1 = positions[indices[i + 1]];
         glm::vec3 p2 = positions[indices[i + 2]];
@@ -505,6 +525,9 @@ std::vector<glm::vec3> ComputeNormals(const std::vector<glm::vec3>& positions,
         normals[indices[i + 0]] += n;
         normals[indices[i + 1]] += n;
         normals[indices[i + 2]] += n;
+    }
+    for (auto& n : normals) {
+        n = glm::normalize(n);
     }
     return normals;
 }

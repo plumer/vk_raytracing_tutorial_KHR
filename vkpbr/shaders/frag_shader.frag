@@ -27,7 +27,7 @@ layout(location = 4) in vec3 worldPos;
 layout(location = 0) out vec4 outColor;
 // Buffers
 layout(binding = 1, scalar) buffer MatColorBufferObject { WaveFrontMaterial m[]; } materials[];
-layout(binding = 2, scalar) buffer ScnDesc { sceneDesc i[]; } scnDesc;
+layout(binding = 2, scalar) buffer ScnDesc { InstanceInfo i[]; } scnDesc;
 layout(binding = 3) uniform sampler2D[] textureSamplers;
 layout(binding = 4, scalar) buffer MatIndex { int i[]; } matIdx[];
 
@@ -52,7 +52,7 @@ void main()
   {
     vec3  lDir     = pushC.lightPosition - worldPos;
     float d        = length(lDir);
-    lightIntensity = pushC.lightIntensity / (d * d);
+    lightIntensity = pushC.lightIntensity / (1+exp(-10*d * d));
     L              = normalize(lDir);
   }
   else

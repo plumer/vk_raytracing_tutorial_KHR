@@ -15,12 +15,13 @@ layout(location = 1) rayPayloadEXT bool isShadowed;
 
 layout(binding = 0, set = 0) uniform accelerationStructureEXT topLevelAS;
 
+// Stores an array of materials for each object model. Can be indexed using indices from DS binding 4.
 layout(binding = 1, set = 1, scalar) buffer MatColorBufferObject { WaveFrontMaterial m[]; } materials[];
 
-// Stores information for all object instances in the scene.
+// Stores information for all object instances (ID, transform, etc) in the scene.
 // Can be indexed by gl_InstanceID.
-layout(binding = 2, set = 1, scalar) buffer ScnDesc { Instance instances[]; } scene;
-
+layout(binding = 2, set = 1, scalar) buffer ScnDesc { InstanceInfo instances[]; } scene;
+ 
 layout(binding = 3, set = 1) uniform sampler2D textureSamplers[];
 
 // For all object models, stores an index to materials (DS binding 1) for each *primitive*.
@@ -82,7 +83,6 @@ void main()
     vec3 normal = v0.nrm * barycentrics.x + v1.nrm * barycentrics.y + v2.nrm * barycentrics.z;
     // Transforming the normal to world space
     normal = normalize(vec3(scene.instances[gl_InstanceID].transfoIT * vec4(normal, 0.0)));
-
 
     // Computing the coordinates of the hit position
     vec3 worldPos = v0.pos * barycentrics.x + v1.pos * barycentrics.y + v2.pos * barycentrics.z;

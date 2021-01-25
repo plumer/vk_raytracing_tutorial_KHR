@@ -96,7 +96,7 @@ void HelloVulkan::updateUniformBuffer(const vk::CommandBuffer& cmdBuf)
     ubo.proj = glm::perspective(glm::radians(CameraManip.getFov()), aspectRatio, 0.1f, 1000.0f);
 #else
     ubo.view = camera_->ViewMatrix();
-    ubo.proj = glm::perspective(glm::radians(camera_->Fov()), aspectRatio, 0.1f, 1000.f);
+    ubo.proj = glm::perspective(glm::radians(camera_->Fov()), aspectRatio, 0.1f, 2000.f);
 #endif
     ubo.proj[1][1] *= -1;  // Inverting Y for Vulkan
     ubo.viewInverse = glm::inverse(ubo.view);
@@ -222,12 +222,22 @@ void HelloVulkan::createGraphicsPipeline()
     gpb.depthStencilState.depthTestEnable = true;
     gpb.addShader(io::LoadBinaryFile("shaders/vert_shader.vert.spv", paths), vkSS::eVertex);
     gpb.addShader(io::LoadBinaryFile("shaders/frag_shader.frag.spv", paths), vkSS::eFragment);
-    gpb.addBindingDescription({0, sizeof(VertexObj)});
-    gpb.addAttributeDescriptions(std::vector<vk::VertexInputAttributeDescription>{
-        {0, 0, vk::Format::eR32G32B32Sfloat, offsetof(VertexObj, pos)},
-        {1, 0, vk::Format::eR32G32B32Sfloat, offsetof(VertexObj, nrm)},
-        {2, 0, vk::Format::eR32G32B32Sfloat, offsetof(VertexObj, color)},
-        {3, 0, vk::Format::eR32G32Sfloat, offsetof(VertexObj, texCoord)}});
+    //                         binding, stride
+    //gpb.addBindingDescription({0, sizeof(VertexObj)});
+    //gpb.addAttributeDescriptions(std::vector<vk::VertexInputAttributeDescription>{
+    //    // location, binding, format,        offset
+    //    {0, 0, vk::Format::eR32G32B32Sfloat, offsetof(VertexObj, pos)},
+    //    {1, 0, vk::Format::eR32G32B32Sfloat, offsetof(VertexObj, nrm)},
+    //    {2, 0, vk::Format::eR32G32B32Sfloat, offsetof(VertexObj, color)},
+    //    {3, 0, vk::Format::eR32G32Sfloat, offsetof(VertexObj, texCoord)}});
+
+    std::vector<vk::VertexInputAttributeDescription> vertex_attribute_332 = {
+        {0, 0, vk::Format::eR32G32B32Sfloat, offsetof(vkpbr::VertexData, position)},
+        {1, 0, vk::Format::eR32G32B32Sfloat, offsetof(vkpbr::VertexData, normal)},
+        {2, 0, vk::Format::eR32G32Sfloat, offsetof(vkpbr::VertexData, texture_uv)},
+    };
+    gpb.addAttributeDescriptions(vertex_attribute_332);
+    gpb.addBindingDescription({0, sizeof(vkpbr::VertexData)});
 
     m_graphicsPipeline = gpb.createPipeline();
     m_debug.setObjectName(m_graphicsPipeline, "Graphics");
@@ -416,6 +426,7 @@ void HelloVulkan::PrepareScene()
 
 void HelloVulkan::PrepareCornellBox()
 {
+    m_pushConstant.lightPosition = {350, 550, 230};
     std::vector<glm::vec3> positions;
     MaterialObj            mtl;
 
@@ -427,16 +438,12 @@ void HelloVulkan::PrepareCornellBox()
         ObjModel                 model;
         std::vector<MaterialObj> mtl_wrapper = {mtl};
         std::vector<int>         mtl_indices = {0};
+        mtl_indices.assign(indices.size() / 3, 0);
 
-        std::vector<VertexObj> vertex_data;
-        // In the Cornell Box scene, all triangles are in the same plane.
+        // In the Cornell Box scene, all triangles are in the same plane, thus ComputeNormals()
+        // will compute the correct normal vectors.
         std::vector<glm::vec3> normals = ComputeNormals(positions, indices);
-        for (int i = 0; i < positions.size(); ++i) {
-            VertexObj v;
-            v.pos = nvmath::vec3f{positions[i].x, positions[i].y, positions[i].z};
-            v.nrm = nvmath::vec3f{normals[i].x, normals[i].y, normals[i].z};
-            vertex_data.push_back(v);
-        }
+        auto                   vertex_data = Interleave(positions, normals);
 
         model.nbVertices     = positions.size();
         model.nbIndices      = indices.size();
@@ -921,7 +928,7 @@ vkpbr::RaytracingBuilderKHR::BlasInput HelloVulkan::objectToVkGeometryKHR(const 
     vk::AccelerationStructureGeometryTrianglesDataKHR triangles;
     triangles.setVertexFormat(vk::Format::eR32G32B32Sfloat);  // vec3 vertex position data.
     triangles.setVertexData(vertexAddress);
-    triangles.setVertexStride(sizeof(VertexObj));
+    triangles.setVertexStride(sizeof(vkpbr::VertexData));
     // Describe index data (32-bit unsigned int)
     triangles.setIndexType(vk::IndexType::eUint32);
     triangles.setIndexData(indexAddress);

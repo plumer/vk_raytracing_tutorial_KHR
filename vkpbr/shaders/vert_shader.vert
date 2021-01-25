@@ -6,7 +6,7 @@
 #include "wavefront.glsl"
 
 // clang-format off
-layout(binding = 2, set = 0, scalar) buffer ScnDesc { sceneDesc i[]; } scnDesc;
+layout(binding = 2, set = 0, scalar) buffer ScnDesc { InstanceInfo i[]; } scnDesc;
 // clang-format on
 
 layout(binding = 0) uniform UniformBufferObject
@@ -28,8 +28,8 @@ pushC;
 
 layout(location = 0) in vec3 inPosition;
 layout(location = 1) in vec3 inNormal;
-layout(location = 2) in vec3 inColor;
-layout(location = 3) in vec2 inTexCoord;
+// layout(location = 2) in vec3 inColor;
+layout(location = 2) in vec2 inTexCoord;
 
 
 //layout(location = 0) flat out int matIndex;
