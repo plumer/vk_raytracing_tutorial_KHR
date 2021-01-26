@@ -26,6 +26,7 @@ struct InstanceInfo
   int  txtOffset;
   mat4 transfo;
   mat4 transfoIT;
+  int mtl_index;
 };
 
 

@@ -127,24 +127,22 @@ void HelloVulkan::createDescriptorSetLayout()
     // Camera matrices (binding = 0)
     m_descSetLayoutBind.AddBinding(
         vkDS(0, vkDT::eUniformBuffer, 1, vkSS::eVertex | vkSS::eRaygenKHR));
-    // Materials (binding = 1)
-    m_descSetLayoutBind.AddBinding(vkDS(1, vkDT::eStorageBuffer, nbObj,
-                                        vkSS::eVertex | vkSS::eFragment | vkSS::eClosestHitKHR));
     // Scene description (binding = 2)
     m_descSetLayoutBind.AddBinding(  //
         vkDS(2, vkDT::eStorageBuffer, 1, vkSS::eVertex | vkSS::eFragment | vkSS::eClosestHitKHR));
     // Textures (binding = 3)
     m_descSetLayoutBind.AddBinding(
         vkDS(3, vkDT::eCombinedImageSampler, nbTxt, vkSS::eFragment | vkSS::eClosestHitKHR));
-    // Materials (binding = 4)
-    m_descSetLayoutBind.AddBinding(
-        vkDS(4, vkDT::eStorageBuffer, nbObj, vkSS::eFragment | vkSS::eClosestHitKHR));
     // Storing vertices (binding = 5)
     m_descSetLayoutBind.AddBinding(  //
         vkDS(5, vkDT::eStorageBuffer, nbObj, vkSS::eClosestHitKHR));
     // Storing indices (binding = 6)
     m_descSetLayoutBind.AddBinding(  //
         vkDS(6, vkDT::eStorageBuffer, nbObj, vkSS::eClosestHitKHR));
+
+    // Uniform materials (not per-object).
+    m_descSetLayoutBind.AddBinding(                  // 1 buffer of array.
+        vkDS(RtDsb::kMaterials, vkDT::eStorageBuffer, 1, vkSS::eFragment | vkSS::eClosestHitKHR));
 
 
     m_descSetLayout = m_descSetLayoutBind.MakeLayout(m_device);
@@ -155,8 +153,6 @@ void HelloVulkan::createDescriptorSetLayout()
                              .setSetLayouts(m_descSetLayout);
 
     m_descSet = m_device.allocateDescriptorSets(ds_alloc_info).front();
-
-    // m_descSet       = nvvk::allocateDescriptorSet(m_device, m_descPool, m_descSetLayout);
 }
 
 //--------------------------------------------------------------------------------------------------
@@ -178,13 +174,9 @@ void HelloVulkan::updateDescriptorSet()
     std::vector<vk::DescriptorBufferInfo> dbiVert;
     std::vector<vk::DescriptorBufferInfo> dbiIdx;
     for (auto& obj : m_objModel) {
-        dbiMat.emplace_back(obj.matColorBuffer.handle, 0, VK_WHOLE_SIZE);
-        dbiMatIdx.emplace_back(obj.matIndexBuffer.handle, 0, VK_WHOLE_SIZE);
         dbiVert.emplace_back(obj.vertexBuffer.handle, 0, VK_WHOLE_SIZE);
         dbiIdx.emplace_back(obj.indexBuffer.handle, 0, VK_WHOLE_SIZE);
     }
-    writes.emplace_back(m_descSetLayoutBind.MakeWriteArray(m_descSet, 1, dbiMat.data()));
-    writes.emplace_back(m_descSetLayoutBind.MakeWriteArray(m_descSet, 4, dbiMatIdx.data()));
     writes.emplace_back(m_descSetLayoutBind.MakeWriteArray(m_descSet, 5, dbiVert.data()));
     writes.emplace_back(m_descSetLayoutBind.MakeWriteArray(m_descSet, 6, dbiIdx.data()));
 
@@ -194,6 +186,13 @@ void HelloVulkan::updateDescriptorSet()
         diit.emplace_back(texture.descriptor);
     }
     writes.emplace_back(m_descSetLayoutBind.MakeWriteArray(m_descSet, 3, diit.data()));
+
+    auto dbi_universal_mtls = vk::DescriptorBufferInfo()
+                                  .setBuffer(materials_buffer_.handle)
+                                  .setOffset(0)
+                                  .setRange(VK_WHOLE_SIZE);
+    writes.emplace_back(
+        m_descSetLayoutBind.MakeWrite(m_descSet, RtDsb::kMaterials, &dbi_universal_mtls));
 
     // Writing the information
     m_device.updateDescriptorSets(static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
@@ -222,22 +221,15 @@ void HelloVulkan::createGraphicsPipeline()
     gpb.depthStencilState.depthTestEnable = true;
     gpb.addShader(io::LoadBinaryFile("shaders/vert_shader.vert.spv", paths), vkSS::eVertex);
     gpb.addShader(io::LoadBinaryFile("shaders/frag_shader.frag.spv", paths), vkSS::eFragment);
-    //                         binding, stride
-    //gpb.addBindingDescription({0, sizeof(VertexObj)});
-    //gpb.addAttributeDescriptions(std::vector<vk::VertexInputAttributeDescription>{
-    //    // location, binding, format,        offset
-    //    {0, 0, vk::Format::eR32G32B32Sfloat, offsetof(VertexObj, pos)},
-    //    {1, 0, vk::Format::eR32G32B32Sfloat, offsetof(VertexObj, nrm)},
-    //    {2, 0, vk::Format::eR32G32B32Sfloat, offsetof(VertexObj, color)},
-    //    {3, 0, vk::Format::eR32G32Sfloat, offsetof(VertexObj, texCoord)}});
 
     std::vector<vk::VertexInputAttributeDescription> vertex_attribute_332 = {
+        // location, binding, format,        offset
         {0, 0, vk::Format::eR32G32B32Sfloat, offsetof(vkpbr::VertexData, position)},
         {1, 0, vk::Format::eR32G32B32Sfloat, offsetof(vkpbr::VertexData, normal)},
         {2, 0, vk::Format::eR32G32Sfloat, offsetof(vkpbr::VertexData, texture_uv)},
     };
     gpb.addAttributeDescriptions(vertex_attribute_332);
-    gpb.addBindingDescription({0, sizeof(vkpbr::VertexData)});
+    gpb.addBindingDescription({/* binding_index = */0, /* stride = */sizeof(vkpbr::VertexData)});
 
     m_graphicsPipeline = gpb.createPipeline();
     m_debug.setObjectName(m_graphicsPipeline, "Graphics");
@@ -269,8 +261,8 @@ void HelloVulkan::loadModel(const std::string& filename, glm::mat4 transform)
     instance.txtOffset   = static_cast<uint32_t>(m_textures.size());
 
     ObjModel model;
-    model.nbIndices  = static_cast<uint32_t>(loader.m_indices.size());
-    model.nbVertices = static_cast<uint32_t>(loader.m_vertices.size());
+    model.num_indices  = static_cast<uint32_t>(loader.m_indices.size());
+    model.num_vertices = static_cast<uint32_t>(loader.m_vertices.size());
 
     // Create the buffers on Device and copy vertices, indices and materials
     vkpbr::CommandPool cmdBufGet(m_device, m_graphicsQueueIndex);
@@ -283,8 +275,6 @@ void HelloVulkan::loadModel(const std::string& filename, glm::mat4 transform)
         allocator_.MakeBuffer(cmdBuf, loader.m_indices,
                               vkBU::eIndexBuffer | vkBU::eStorageBuffer | vkBU::eShaderDeviceAddress
                                   | vkBU::eAccelerationStructureBuildInputReadOnlyKHR);
-    model.matColorBuffer = allocator_.MakeBuffer(cmdBuf, loader.m_materials, vkBU::eStorageBuffer);
-    model.matIndexBuffer = allocator_.MakeBuffer(cmdBuf, loader.m_matIndx, vkBU::eStorageBuffer);
     // Creates all textures found
     createTextureImages(cmdBuf, loader.m_textures);
     cmdBufGet.SubmitAndWait(cmdBuf);
@@ -296,8 +286,6 @@ void HelloVulkan::loadModel(const std::string& filename, glm::mat4 transform)
     std::string objNb = std::to_string(instance.objIndex);
     m_debug.setObjectName(model.vertexBuffer.handle, (std::string("vertex_" + objNb).c_str()));
     m_debug.setObjectName(model.indexBuffer.handle, (std::string("index_" + objNb).c_str()));
-    m_debug.setObjectName(model.matColorBuffer.handle, (std::string("mat_" + objNb).c_str()));
-    m_debug.setObjectName(model.matIndexBuffer.handle, (std::string("matIdx_" + objNb).c_str()));
 
     m_objModel.emplace_back(model);
     m_objInstance.emplace_back(instance);
@@ -359,8 +347,8 @@ void HelloVulkan::PrepareScene()
     using vkBU   = vk::BufferUsageFlagBits;
     using vkrtBU = vkrt::BufferUsageFlagBits;
     ObjModel glass_model;
-    glass_model.nbVertices = glass_vertices.size();
-    glass_model.nbIndices  = glass_ply.indices.size();
+    glass_model.num_vertices = cast_u32(glass_vertices.size());
+    glass_model.num_indices  = cast_u32(glass_ply.indices.size());
     glass_model.vertexBuffer =
         allocator_.MakeBuffer(cmd_buffer, glass_vertices,
                               vkBU::eVertexBuffer | vkBU::eStorageBuffer
@@ -371,17 +359,13 @@ void HelloVulkan::PrepareScene()
                                   | vkrtBU::eBvhBuildInputReadOnly);
 
     MaterialObj glass_mtl;
-    glass_mtl.ior           = 1.01;
+    glass_mtl.ior           = 1.01f;
     glass_mtl.transmittance = {1.0f, 1.0f, 1.0f};
     glass_mtl.emission      = {0.0f, 0.0f, 0.0f};
     glass_mtl.textureID     = -1;
 
     std::vector<MaterialObj> mtl_wrapper = {glass_mtl};
-    glass_model.matColorBuffer =
-        allocator_.MakeBuffer(cmd_buffer, mtl_wrapper, vkBU::eStorageBuffer);
     std::vector<int> mtl_indices = {0};
-    glass_model.matIndexBuffer =
-        allocator_.MakeBuffer(cmd_buffer, mtl_indices, vkBU::eStorageBuffer);
 
     MaterialObj plane_mtl;
     plane_mtl.specular  = {0.2f, 0.2f, 0.2f};
@@ -391,8 +375,8 @@ void HelloVulkan::PrepareScene()
     plane_mtl.textureID = -1;
     mtl_wrapper         = {plane_mtl};
     ObjModel plane_model;
-    plane_model.nbVertices = plane_vertices.size();
-    plane_model.nbIndices  = plane_ply.indices.size();
+    plane_model.num_vertices = cast_u32(plane_vertices.size());
+    plane_model.num_indices  = cast_u32(plane_ply.indices.size());
     plane_model.vertexBuffer =
         allocator_.MakeBuffer(cmd_buffer, plane_vertices,
                               vkBU::eVertexBuffer | vkBU::eStorageBuffer
@@ -401,20 +385,16 @@ void HelloVulkan::PrepareScene()
         allocator_.MakeBuffer(cmd_buffer, plane_ply.indices,
                               vkBU::eIndexBuffer | vkBU::eStorageBuffer | vkBU::eShaderDeviceAddress
                                   | vkrtBU::eBvhBuildInputReadOnly);
-    plane_model.matColorBuffer =
-        allocator_.MakeBuffer(cmd_buffer, mtl_wrapper, vkBU::eStorageBuffer);
-    plane_model.matIndexBuffer =
-        allocator_.MakeBuffer(cmd_buffer, mtl_indices, vkBU::eStorageBuffer);
 
     m_objModel.push_back(glass_model);
     m_objModel.push_back(plane_model);
 
     // Prepares the instances.
     ObjInstance glass_instance;
-    glass_instance.objIndex = m_objModel.size() - 2;
+    glass_instance.objIndex = cast_u32(m_objModel.size() - 2);
 
     ObjInstance plane_instance;
-    plane_instance.objIndex = m_objModel.size() - 1;
+    plane_instance.objIndex = cast_u32(m_objModel.size() - 1);
     m_objInstance.push_back(glass_instance);
     m_objInstance.push_back(plane_instance);
 
@@ -434,19 +414,18 @@ void HelloVulkan::PrepareCornellBox()
     using vkrtBU = vkrt::BufferUsageFlagBits;
 
     auto AddMesh = [this](const std::vector<glm::vec3>& positions, const std::vector<int>& indices,
-                          const MaterialObj& mtl, vk::CommandBuffer cmd_buffer) {
+                          const MaterialObj &mtl, int mtl_index, vk::CommandBuffer cmd_buffer) {
         ObjModel                 model;
         std::vector<MaterialObj> mtl_wrapper = {mtl};
-        std::vector<int>         mtl_indices = {0};
-        mtl_indices.assign(indices.size() / 3, 0);
+        std::vector<int>         mtl_indices = {mtl_index};
 
         // In the Cornell Box scene, all triangles are in the same plane, thus ComputeNormals()
         // will compute the correct normal vectors.
         std::vector<glm::vec3> normals = ComputeNormals(positions, indices);
         auto                   vertex_data = Interleave(positions, normals);
 
-        model.nbVertices     = positions.size();
-        model.nbIndices      = indices.size();
+        model.num_vertices   = cast_u32(positions.size());
+        model.num_indices    = cast_u32(indices.size());
         model.vertexBuffer   = allocator_.MakeBuffer(cmd_buffer, vertex_data,
                                                    vkBU::eVertexBuffer | vkBU::eStorageBuffer
                                                        | vkBU::eShaderDeviceAddress
@@ -455,50 +434,60 @@ void HelloVulkan::PrepareCornellBox()
                                                   vkBU::eIndexBuffer | vkBU::eStorageBuffer
                                                       | vkBU::eShaderDeviceAddress
                                                       | vkrtBU::eBvhBuildInputReadOnly);
-        model.matColorBuffer = allocator_.MakeBuffer(cmd_buffer, mtl_wrapper, vkBU::eStorageBuffer);
-        model.matIndexBuffer = allocator_.MakeBuffer(cmd_buffer, mtl_indices, vkBU::eStorageBuffer);
         m_objModel.push_back(model);
     };
 
     vkpbr::CommandPool cmd_pool(m_device, m_graphicsQueueIndex);
     auto               cmd_buffer = cmd_pool.MakeCmdBuffer();
 
+    enum MtlIndex {kLight, kWhite, kRed, kGreen, kCount};
+    universal_materials_.resize(MtlIndex::kCount);
+    std::vector<int> mtl_indices;
+
     // light
     positions = {
         {343.0, 548.8, 227.0}, {343.0, 548.8, 332.0}, {213.0, 548.8, 332.0}, {213.0, 548.8, 227.0}};
     for (auto& p : positions)
-        p.y -= 0.8;
+        p.y -= 0.8f;
     mtl.diffuse  = {1.0, 1.0, 1.0};
     mtl.emission = {10.0, 10.0, 10.0};
-    AddMesh(positions, {0, 1, 2, 0, 2, 3}, mtl, cmd_buffer);
+    AddMesh(positions, {0, 1, 2, 0, 2, 3}, mtl, MtlIndex::kLight, cmd_buffer);
+
+    universal_materials_[MtlIndex::kLight] = mtl;
+    mtl_indices.push_back(kLight);
 
     {  // Floor, back wall and ceiling. Share the same material.
         positions = {{552.8, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 559.2}, {549.6, 0.0, 559.2}};
 
         mtl.diffuse  = {1.0, 1.0, 1.0};
         mtl.emission = {0.0, 0.0, 0.0};
-        AddMesh(positions, {0, 1, 2, 0, 2, 3}, mtl, cmd_buffer);
+        universal_materials_[MtlIndex::kWhite] = mtl;
+        AddMesh(positions, {0, 1, 2, 0, 2, 3}, mtl, MtlIndex::kWhite, cmd_buffer);
 
         // ceiling
         positions = {
             {556.0, 548.8, 0.0}, {556.0, 548.8, 559.2}, {0.0, 548.8, 559.2}, {0.0, 548.8, 0.0}};
-        AddMesh(positions, {0, 1, 2, 0, 2, 3}, mtl, cmd_buffer);
+        AddMesh(positions, {0, 1, 2, 0, 2, 3}, mtl, MtlIndex::kWhite, cmd_buffer);
         // back wall
         positions = {
             {549.6, 0.0, 559.2}, {0.0, 0.0, 559.2}, {0.0, 548.8, 559.2}, {556.0, 548.8, 559.2}};
 
-        AddMesh(positions, {0, 1, 2, 0, 2, 3}, mtl, cmd_buffer);
+        AddMesh(positions, {0, 1, 2, 0, 2, 3}, mtl, MtlIndex::kWhite, cmd_buffer);
+        mtl_indices.insert(mtl_indices.end(), {kWhite, kWhite, kWhite});
     }
 
     // right wall
     positions = {{0.0, 0.0, 559.2}, {0.0, 0.0, 0.0}, {0.0, 548.8, 0.0}, {0.0, 548.8, 559.2}};
     mtl.diffuse = {0.1, 0.9, 0.1};
-    AddMesh(positions, {0, 1, 2, 0, 2, 3}, mtl, cmd_buffer);
+    universal_materials_[MtlIndex::kGreen] = mtl;
+    AddMesh(positions, {0, 1, 2, 0, 2, 3}, mtl, MtlIndex::kGreen, cmd_buffer);
     // left wall
     positions = {
         {552.8, 0.0, 0.0}, {549.6, 0.0, 559.2}, {556.0, 548.8, 559.2}, {556.0, 548.8, 0.0}};
     mtl.diffuse = {0.9, 0.1, 0.1};
-    AddMesh(positions, {0, 1, 2, 0, 2, 3}, mtl, cmd_buffer);
+    universal_materials_[MtlIndex::kRed] = mtl;
+    AddMesh(positions, {0, 1, 2, 0, 2, 3}, mtl, MtlIndex::kRed, cmd_buffer);
+    mtl_indices.insert(mtl_indices.end(), {kGreen, kRed});
 
     // short block and tall block both are white
     mtl.diffuse = {1.0, 1.0, 1.0};
@@ -513,7 +502,8 @@ void HelloVulkan::PrepareCornellBox()
     for (int i = 0; i < positions.size(); i += 4) {
         std::vector<glm::vec3> face_positions;
         face_positions.assign(positions.begin() + i, positions.begin() + i + 4);
-        AddMesh(face_positions, {0, 1, 2, 0, 2, 3}, mtl, cmd_buffer);
+        AddMesh(face_positions, {0, 1, 2, 0, 2, 3}, mtl, MtlIndex::kWhite, cmd_buffer);
+        mtl_indices.push_back(kWhite);
     }
     // tall block
     positions = {{423.0, 330.0, 247.0}, {265.0, 330.0, 296.0}, {314.0, 330.0, 456.0},
@@ -526,15 +516,21 @@ void HelloVulkan::PrepareCornellBox()
     for (int i = 0; i < positions.size(); i += 4) {
         std::vector<glm::vec3> face_positions;
         face_positions.assign(positions.begin() + i, positions.begin() + i + 4);
-        AddMesh(face_positions, {0, 1, 2, 0, 2, 3}, mtl, cmd_buffer);
+        AddMesh(face_positions, {0, 1, 2, 0, 2, 3}, mtl, MtlIndex::kWhite, cmd_buffer);
+        mtl_indices.push_back(kWhite);
     }
-
+    CHECK_EQ(mtl_indices.size(), m_objModel.size());
     for (int i = 0; i < m_objModel.size(); ++i) {
         ObjInstance instance;
         instance.objIndex = i;
+        instance.mtl_index = mtl_indices[i];
         m_objInstance.push_back(instance);
     }
     createTextureImages(cmd_buffer, {});
+    
+    // Creates the shader-storage buffer for the universal materials.
+    materials_buffer_ =
+        allocator_.MakeBuffer(cmd_buffer, universal_materials_, vkBU::eStorageBuffer);
 
     cmd_pool.SubmitAndWait(cmd_buffer);
     allocator_.ReleaseAllStagingBuffers();
@@ -662,12 +658,11 @@ void HelloVulkan::destroyResources()
     m_device.destroy(m_descSetLayout);
     m_cameraMat.DestroyFrom(m_device);
     m_sceneDesc.DestroyFrom(m_device);
+    materials_buffer_.DestroyFrom(m_device);
 
     for (auto& m : m_objModel) {
         m.vertexBuffer.DestroyFrom(m_device);
         m.indexBuffer.DestroyFrom(m_device);
-        m.matColorBuffer.DestroyFrom(m_device);
-        m.matIndexBuffer.DestroyFrom(m_device);
     }
 
     for (auto& t : m_textures) {
@@ -721,7 +716,7 @@ void HelloVulkan::rasterize(const vk::CommandBuffer& cmdBuf)
 
         cmdBuf.bindVertexBuffers(0, {model.vertexBuffer.handle}, {offset});
         cmdBuf.bindIndexBuffer(model.indexBuffer.handle, 0, vk::IndexType::eUint32);
-        cmdBuf.drawIndexed(model.nbIndices, 1, 0, 0, 0);
+        cmdBuf.drawIndexed(model.num_indices, 1, 0, 0, 0);
     }
     m_debug.endLabel(cmdBuf);
 }
@@ -922,7 +917,7 @@ vkpbr::RaytracingBuilderKHR::BlasInput HelloVulkan::objectToVkGeometryKHR(const 
     vk::DeviceAddress vertexAddress = m_device.getBufferAddress({model.vertexBuffer.handle});
     vk::DeviceAddress indexAddress  = m_device.getBufferAddress({model.indexBuffer.handle});
 
-    uint32_t maxPrimitiveCount = model.nbIndices / 3;
+    uint32_t maxPrimitiveCount = model.num_indices / 3;
 
     // Describe buffer as array of VertexObj.
     vk::AccelerationStructureGeometryTrianglesDataKHR triangles;
@@ -934,7 +929,7 @@ vkpbr::RaytracingBuilderKHR::BlasInput HelloVulkan::objectToVkGeometryKHR(const 
     triangles.setIndexData(indexAddress);
     // Indicate identity transform by setting transformData to null device pointer.
     triangles.setTransformData({});
-    triangles.setMaxVertex(model.nbVertices);
+    triangles.setMaxVertex(model.num_vertices);
 
     // Identify the above data as containing opaque triangles.
     vk::AccelerationStructureGeometryKHR asGeom;
@@ -1038,6 +1033,14 @@ void HelloVulkan::updateRtDescriptorSet()
     m_device.updateDescriptorSets(wds, nullptr);
 }
 
+static vkrt::RtShaderGroupCreateInfo MakeEmptyShaderGroupCI() {
+    return vkrt::RtShaderGroupCreateInfo()
+        .setType(vkrt::RtShaderGroupType::eGeneral)
+        .setAnyHitShader(vkrt::kShaderUnused)
+        .setClosestHitShader(vkrt::kShaderUnused)
+        .setGeneralShader(vkrt::kShaderUnused)
+        .setIntersectionShader(vkrt::kShaderUnused);
+}
 
 //--------------------------------------------------------------------------------------------------
 // Pipeline for the ray tracer: all shaders, raygen, chit, miss
@@ -1056,37 +1059,29 @@ void HelloVulkan::createRtPipeline()
     vk::ShaderModule shadowmissSM =
         vkpbr::MakeShaderModule(m_device,
                                 io::LoadBinaryFile("shaders/raytraceShadow.rmiss.spv", paths));
-
-    std::vector<vk::PipelineShaderStageCreateInfo> stages;
-
-    // Raygen
-    vk::RayTracingShaderGroupCreateInfoKHR rg{vk::RayTracingShaderGroupTypeKHR::eGeneral,
-                                              VK_SHADER_UNUSED_KHR, VK_SHADER_UNUSED_KHR,
-                                              VK_SHADER_UNUSED_KHR, VK_SHADER_UNUSED_KHR};
-    stages.push_back({{}, vk::ShaderStageFlagBits::eRaygenKHR, raygenSM, "main"});
-    rg.setGeneralShader(static_cast<uint32_t>(stages.size() - 1));
-    m_rtShaderGroups.push_back(rg);
-    // Miss
-    vk::RayTracingShaderGroupCreateInfoKHR mg{vk::RayTracingShaderGroupTypeKHR::eGeneral,
-                                              VK_SHADER_UNUSED_KHR, VK_SHADER_UNUSED_KHR,
-                                              VK_SHADER_UNUSED_KHR, VK_SHADER_UNUSED_KHR};
-    stages.push_back({{}, vk::ShaderStageFlagBits::eMissKHR, missSM, "main"});
-    mg.setGeneralShader(static_cast<uint32_t>(stages.size() - 1));
-    m_rtShaderGroups.push_back(mg);
-    // Shadow Miss
-    stages.push_back({{}, vk::ShaderStageFlagBits::eMissKHR, shadowmissSM, "main"});
-    mg.setGeneralShader(static_cast<uint32_t>(stages.size() - 1));
-    m_rtShaderGroups.push_back(mg);
-
-    // Hit Group - Closest Hit + AnyHit
     vk::ShaderModule chitSM =
         vkpbr::MakeShaderModule(m_device, io::LoadBinaryFile("shaders/raytrace.rchit.spv", paths));
 
-    vk::RayTracingShaderGroupCreateInfoKHR hg{vk::RayTracingShaderGroupTypeKHR::eTrianglesHitGroup,
-                                              VK_SHADER_UNUSED_KHR, VK_SHADER_UNUSED_KHR,
-                                              VK_SHADER_UNUSED_KHR, VK_SHADER_UNUSED_KHR};
-    stages.push_back({{}, vk::ShaderStageFlagBits::eClosestHitKHR, chitSM, "main"});
-    hg.setClosestHitShader(static_cast<uint32_t>(stages.size() - 1));
+    std::vector<vk::PipelineShaderStageCreateInfo> stages(RtStages::kNumStages);
+    stages[RtStages::kRaygen]     = {{}, vk::ShaderStageFlagBits::eRaygenKHR, raygenSM, "main"};
+    stages[RtStages::kMiss]       = {{}, vk::ShaderStageFlagBits::eMissKHR, missSM, "main"};
+    stages[RtStages::kShadowMiss] = {{}, vk::ShaderStageFlagBits::eMissKHR, shadowmissSM, "main"};
+    stages[RtStages::kCHit]       = {{}, vk::ShaderStageFlagBits::eClosestHitKHR, chitSM, "main"};
+
+    // Raygen
+    auto rg = MakeEmptyShaderGroupCI().setType(vkrt::RtShaderGroupType::eGeneral);
+    rg.setGeneralShader(RtStages::kRaygen);
+    m_rtShaderGroups.push_back(rg);
+    // Miss
+    auto mg = MakeEmptyShaderGroupCI().setType(vk::RayTracingShaderGroupTypeKHR::eGeneral);
+    mg.setGeneralShader(RtStages::kMiss);
+    m_rtShaderGroups.push_back(mg);
+    // Shadow Miss
+    mg.setGeneralShader(RtStages::kShadowMiss);
+    m_rtShaderGroups.push_back(mg);
+    // Hit Group - Closest Hit + AnyHit
+    auto hg = MakeEmptyShaderGroupCI().setType(vkrt::RtShaderGroupType::eTrianglesHitGroup);
+    hg.setClosestHitShader(RtStages::kCHit);
     m_rtShaderGroups.push_back(hg);
 
     // RT pipeline 1.1: pipeline layout - push constant.

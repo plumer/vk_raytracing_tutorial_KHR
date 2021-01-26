@@ -9,10 +9,10 @@
 
 layout(push_constant) uniform shaderInformation
 {
-  vec3  lightPosition;
-  uint  instanceId;
-  float lightIntensity;
-  int   lightType;
+    vec3  lightPosition;
+    uint  instanceId;
+    float lightIntensity;
+    int   lightType;
 }
 pushC;
 
@@ -25,55 +25,50 @@ layout(location = 3) in vec3 viewDir;
 layout(location = 4) in vec3 worldPos;
 // Outgoing
 layout(location = 0) out vec4 outColor;
+
 // Buffers
-layout(binding = 1, scalar) buffer MatColorBufferObject { WaveFrontMaterial m[]; } materials[];
 layout(binding = 2, scalar) buffer ScnDesc { InstanceInfo i[]; } scnDesc;
 layout(binding = 3) uniform sampler2D[] textureSamplers;
-layout(binding = 4, scalar) buffer MatIndex { int i[]; } matIdx[];
+layout(binding = 7, scalar) buffer UniversalMaterials {WaveFrontMaterial mtls[];} u_mtls;
 
 // clang-format on
 
-
 void main()
 {
-  // Object of this instance
-  int objId = scnDesc.i[pushC.instanceId].objId;
+    // Object of this instance
+    int objId = scnDesc.i[pushC.instanceId].objId;
 
-  // Material of the object
-  int               matIndex = matIdx[nonuniformEXT(objId)].i[gl_PrimitiveID];
-  WaveFrontMaterial mat      = materials[nonuniformEXT(objId)].m[matIndex];
+    // Material of the object
+    int               matIdx = scnDesc.i[pushC.instanceId].mtl_index;
+    WaveFrontMaterial mat    = u_mtls.mtls[nonuniformEXT(matIdx)];
 
-  vec3 N = normalize(fragNormal);
+    vec3 N = normalize(fragNormal);
 
-  // Vector toward light
-  vec3  L;
-  float lightIntensity = pushC.lightIntensity;
-  if(pushC.lightType == 0)
-  {
-    vec3  lDir     = pushC.lightPosition - worldPos;
-    float d        = length(lDir);
-    lightIntensity = pushC.lightIntensity / (1+exp(-10*d * d));
-    L              = normalize(lDir);
-  }
-  else
-  {
-    L = normalize(pushC.lightPosition - vec3(0));
-  }
+    // Vector toward light
+    vec3  L;
+    float lightIntensity = pushC.lightIntensity;
+    if (pushC.lightType == 0) {
+        vec3  lDir     = pushC.lightPosition - worldPos;
+        float d        = length(lDir);
+        lightIntensity = pushC.lightIntensity / (1 + exp(-10 * d * d));
+        L              = normalize(lDir);
+    } else {
+        L = normalize(pushC.lightPosition - vec3(0));
+    }
 
 
-  // Diffuse
-  vec3 diffuse = computeDiffuse(mat, L, N);
-  if(mat.textureId >= 0)
-  {
-    int  txtOffset  = scnDesc.i[pushC.instanceId].txtOffset;
-    uint txtId      = txtOffset + mat.textureId;
-    vec3 diffuseTxt = texture(textureSamplers[nonuniformEXT(txtId)], fragTexCoord).xyz;
-    diffuse *= diffuseTxt;
-  }
+    // Diffuse
+    vec3 diffuse = computeDiffuse(mat, L, N);
+    if (mat.textureId >= 0) {
+        int  txtOffset  = scnDesc.i[pushC.instanceId].txtOffset;
+        uint txtId      = txtOffset + mat.textureId;
+        vec3 diffuseTxt = texture(textureSamplers[nonuniformEXT(txtId)], fragTexCoord).xyz;
+        diffuse *= diffuseTxt;
+    }
 
-  // Specular
-  vec3 specular = computeSpecular(mat, viewDir, L, N);
+    // Specular
+    vec3 specular = computeSpecular(mat, viewDir, L, N);
 
-  // Result
-  outColor = vec4(lightIntensity * (diffuse + specular), 1);
+    // Result
+    outColor = vec4(lightIntensity * (diffuse + specular), 1);
 }

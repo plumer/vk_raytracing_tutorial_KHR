@@ -206,10 +206,14 @@ struct RaytracingBuilderKHR {
 }  // namespace vkpbr
 
 namespace vkrt {
+
+constexpr u32 kShaderUnused = VK_SHADER_UNUSED_KHR;
+
 using BuildBvhFlagBits = vk::BuildAccelerationStructureFlagBitsKHR;
 using BuildBvhFlags    = vk::BuildAccelerationStructureFlagsKHR;
 using BuildBvhMode     = vk::BuildAccelerationStructureModeKHR;
 
+using Bvh = vk::AccelerationStructureKHR;
 using BvhBuildGeometryInfo = vk::AccelerationStructureBuildGeometryInfoKHR;
 using BvhBuildRangeInfo    = vk::AccelerationStructureBuildRangeInfoKHR;
 using BvhBuildSizesInfo    = vk::AccelerationStructureBuildSizesInfoKHR;
@@ -261,6 +265,7 @@ struct BufferUsageFlagBits {
         Type::eAccelerationStructureBuildInputReadOnlyKHR;
     static constexpr Type eSbtKHR = Type::eShaderBindingTableKHR;
 };
+
 }  // namespace vkrt
 
 #else

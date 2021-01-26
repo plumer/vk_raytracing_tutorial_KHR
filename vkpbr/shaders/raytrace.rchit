@@ -15,24 +15,20 @@ layout(location = 1) rayPayloadEXT bool isShadowed;
 
 layout(binding = 0, set = 0) uniform accelerationStructureEXT topLevelAS;
 
-// Stores an array of materials for each object model. Can be indexed using indices from DS binding 4.
-layout(binding = 1, set = 1, scalar) buffer MatColorBufferObject { WaveFrontMaterial m[]; } materials[];
-
 // Stores information for all object instances (ID, transform, etc) in the scene.
 // Can be indexed by gl_InstanceID.
 layout(binding = 2, set = 1, scalar) buffer ScnDesc { InstanceInfo instances[]; } scene;
  
 layout(binding = 3, set = 1) uniform sampler2D textureSamplers[];
 
-// For all object models, stores an index to materials (DS binding 1) for each *primitive*.
-// The size of the array for each model (aka i) is 1/3 of that of vertices[].v.
-layout(binding = 4, set = 1)  buffer MatIndexColorBuffer { int i[]; } matIndex[];
 // Stores vertex data for the object mesh, for all objects.
 // `v` can be indexed through `indices` at DS binding 6.
 layout(binding = 5, set = 1, scalar) buffer Vertices { Vertex v[]; } vertices[];
 
 // Triangle indices to vertex data for all object model.
 layout(binding = 6, set = 1) buffer Indices { uint i[]; } indices[];
+
+layout(binding = 7, set = 1, scalar) buffer UniversalMaterials{ WaveFrontMaterial mtls[];} u_mtls;
 
 layout(push_constant) uniform Constants
 {
@@ -107,8 +103,8 @@ void main()
     // Computes the integration of rendering equation.
     // -------------------------------------------------------------------------------------------
     // Material of the object
-    int               matIdx = matIndex[nonuniformEXT(objId)].i[gl_PrimitiveID];
-    WaveFrontMaterial mat    = materials[nonuniformEXT(objId)].m[matIdx];
+    int matIdx = scene.instances[gl_InstanceID].mtl_index;
+    WaveFrontMaterial mat = u_mtls.mtls[nonuniformEXT(matIdx)];
 
     // Determines the light to scatter according to material.
 

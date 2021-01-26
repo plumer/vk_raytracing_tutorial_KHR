@@ -34,6 +34,7 @@
 // #VKRay
 #include "camera.h"
 #include "vk_raytrace.h"
+#include <obj_loader.h>
 
 //--------------------------------------------------------------------------------------------------
 // Simple rasterizer of OBJ objects
@@ -71,12 +72,10 @@ class HelloVulkan : public vkpbr::AppBase
 
     // The OBJ model
     struct ObjModel {
-        uint32_t                  nbIndices{0};
-        uint32_t                  nbVertices{0};
+        uint32_t                  num_indices{0};
+        uint32_t                  num_vertices{0};
         vkpbr::UniqueMemoryBuffer vertexBuffer;    // Device buffer of all 'Vertex'
         vkpbr::UniqueMemoryBuffer indexBuffer;     // Device buffer of the indices forming triangles
-        vkpbr::UniqueMemoryBuffer matColorBuffer;  // Device buffer of array of 'Wavefront material'
-        vkpbr::UniqueMemoryBuffer matIndexBuffer;  // Device buffer of array of 'Wavefront material'
     };
 
     // Instance of the OBJ
@@ -85,13 +84,14 @@ class HelloVulkan : public vkpbr::AppBase
         uint32_t  txtOffset{0};    // Offset in `m_textures`
         glm::mat4 transform{1};    // Position of the instance
         glm::mat4 transformIT{1};  // Inverse transpose
+        int       mtl_index = 0;
     };
 
     // Information pushed at each draw call
     struct ObjPushConstant {
         glm::vec3 lightPosition{10.f, 15.f, 8.f};
         int       instanceId{0};  // To retrieve the transformation matrix
-        float     lightIntensity{100.f};
+        float     lightIntensity{1.2f};
         int       lightType{0};  // 0: point, 1: infinite
     };
     ObjPushConstant m_pushConstant;
@@ -130,12 +130,12 @@ class HelloVulkan : public vkpbr::AppBase
     vk::Pipeline                 m_postPipeline;
     vk::PipelineLayout           m_postPipelineLayout;
 
-    vk::RenderPass               m_offscreenRenderPass;
-    vk::Framebuffer              m_offscreenFramebuffer;
-    vkpbr::UniqueMemoryTexture   m_offscreenColor;
-    vk::Format                   m_offscreenColorFormat{vk::Format::eR32G32B32A32Sfloat};
-    vkpbr::UniqueMemoryTexture   m_offscreenDepth;
-    vk::Format                   m_offscreenDepthFormat{vk::Format::eD32Sfloat};
+    vk::RenderPass             m_offscreenRenderPass;
+    vk::Framebuffer            m_offscreenFramebuffer;
+    vkpbr::UniqueMemoryTexture m_offscreenColor;
+    vk::Format                 m_offscreenColorFormat{vk::Format::eR32G32B32A32Sfloat};
+    vkpbr::UniqueMemoryTexture m_offscreenDepth;
+    vk::Format                 m_offscreenDepthFormat{vk::Format::eD32Sfloat};
 
     // #VKRay
     void                                   initRayTracing();
@@ -148,7 +148,12 @@ class HelloVulkan : public vkpbr::AppBase
     void                                   createRtShaderBindingTable();
     void raytrace(const vk::CommandBuffer& cmdBuf, const glm::vec4& clearColor);
 
-    enum RTStages {kRaygen, kMiss, kShadowMiss, kCHit, kNumStages};
+    enum RtStages { kRaygen, kMiss, kShadowMiss, kCHit, kNumStages };
+    // Descriptor-set-binding indices. 
+    enum RtDsb { kTlas, kOldMtls, kScene, kTextures, kMtlIndices, kVertices, kIndices, kMaterials };
+    vkpbr::UniqueBuffer materials_buffer_;
+
+    std::vector<MaterialObj> universal_materials_;
 
     vk::PhysicalDeviceRayTracingPipelinePropertiesKHR m_rtProperties;
     vkpbr::RaytracingBuilderKHR                       m_rtBuilder;
@@ -178,7 +183,7 @@ class HelloVulkan : public vkpbr::AppBase
         glm::vec3 lightPosition;
         float     lightIntensity;
         int       lightType;
-        int       accumulated_frames = -1;
+        int       accumulated_frames  = -1;
         int       max_recursion_depth = 3;
         float     glass_ior           = 1.0;
     } m_rtPushConstants;
