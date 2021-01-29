@@ -56,8 +56,15 @@ struct worlditem_node_t {
         AttrPair, ObjPair, TransPair,
         MakeMedium, MakeMaterial,
         ReverseOrientation,
-        ObjInst, MaterialInst, MediaInst
+        ObjInst, MaterialInst, MediaInst, NumDirectives
     } directive;
+
+    static constexpr char* kDirectiveNames[] = {
+        "Transform",  "Shape",        "Material",           "Light",   "AreaLight",
+        "Media",      "Texture",      "AttrPair",           "ObjPair", "TransPair",
+        "MakeMedium", "MakeMaterial", "ReverseOrientation", "ObjInst", "MaterialInst",
+        "MediaInst"};
+    const char* DirectiveName() const { return kDirectiveNames[static_cast<int>(directive)]; }
 
     // for shape, material, light, arealight and media
     std::string implementation;
@@ -71,11 +78,11 @@ struct worlditem_node_t {
     // for transform
     std::shared_ptr<struct transform_node_t> trans = nullptr;
 
-    // for makers
+    // For makers (MakeNamedMaterial, MakeNamedMedium)
     std::string maked_name;
     struct param_node_t * maked_params = nullptr;
 
-    // for instantiators
+    // For instantiators (NamedMaterial, NamedMedium)
     std::string inst_name;
 
     worlditem_node_t() = default;

@@ -70,6 +70,8 @@ class HelloVulkan : public vkpbr::AppBase
     void PrepareScene();
     void PrepareCornellBox();
 
+    void PreparePbrtScene(const std::string &pbrt_file_name);
+
     // The OBJ model
     struct ObjModel {
         uint32_t                  num_indices{0};

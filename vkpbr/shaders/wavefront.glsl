@@ -29,6 +29,24 @@ struct InstanceInfo
   int mtl_index;
 };
 
+struct PbrtMaterial {
+    int type;
+    vec3 diffuse;
+    int diffuse_tex_id;
+    vec3 specular;
+    int specular_tex_id;
+    vec3 reflective;
+    int reflective_tex_id;
+    vec3 transmissive;
+    int transmissive_tex_id;
+    vec3 emission;
+
+    vec3 eta;
+    vec3 eta_imaginary;
+    float roughness_sigma;
+    float u_roughness;
+    float v_roughtness;
+};
 
 vec3 computeDiffuse(WaveFrontMaterial mat, vec3 lightDir, vec3 normal)
 {

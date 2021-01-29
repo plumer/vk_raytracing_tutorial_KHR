@@ -23,25 +23,42 @@ SampledSpectrum SampledSpectrum::FromSampled(const float *lambdas, const float *
 	std::sort(lvpairs.begin(), lvpairs.end());
 
 	SampledSpectrum r;
-	constexpr float half_sample_width = kSampleWidth / 2.0f;
-	// Consider the straight-line segment from (l_i, v_i) to (l_j, v_j)
-	// where j= i+1. There are a number of evenly-spaced lambdas between
-	// l_i and l_j. The area under the line segment contributes to the value
-	// in r.coeff_[].
-	for (int i = 0; i < lvpairs.size()-1; ++i) {
-		float lambda_l = lvpairs[i].l, lambda_r = lvpairs[i+1].l;
-		float value_l = lvpairs[i].v, value_r = lvpairs[i+1].v;
-		// What is the last lambda value that lies to the left of ll?
-		int li_left = int(lambda_l / kSampleWidth) * kSampleWidth;
-		// What is the first lambda value that lies to the right ot lr?
-		int li_right = int(lambda_r / kSampleWidth) * kSampleWidth;
+	for (int l = kSampledLambdaStart; l < kSampledLambdaEnd; l += kSampleWidth) {
+		const int index = (l - kSampledLambdaStart) / kSampleWidth;
 
-		// Special case at the left end: from lambda_l to min(li_left+i, lr)
-
-
+        auto pivot = std::partition_point(lvpairs.begin(), lvpairs.end(),
+                                          [l](const lambda_and_v& lv) { return lv.l < l; });
+        if (pivot == lvpairs.begin())
+            r.coeff_[index] = lvpairs.front().v;
+        else if (pivot == lvpairs.end())
+            r.coeff_[index] = lvpairs.back().v;
+        else {
+            const auto left = pivot - 1, right = pivot;
+            float      t              = (l - left->l) / static_cast<float>(right->l - left->l);
+            float      interpolated_v = left->v + (right->v - left->v) * t;
+            r.coeff_[index]           = interpolated_v;
+        }
 	}
-	LOG(ERROR) << "incomplete";
-	return r;
+
+#ifdef CUBIC_SPLINE_INTERPOLATION
+    constexpr float half_sample_width = kSampleWidth / 2.0f;
+    // Consider the straight-line segment from (l_i, v_i) to (l_j, v_j)
+    // where j= i+1. There are a number of evenly-spaced lambdas between
+    // l_i and l_j. The area under the line segment contributes to the value
+    // in r.coeff_[].
+    for (int i = 0; i < lvpairs.size() - 1; ++i) {
+        float lambda_l = lvpairs[i].l, lambda_r = lvpairs[i + 1].l;
+        float value_l = lvpairs[i].v, value_r = lvpairs[i + 1].v;
+        // What is the last lambda value that lies to the left of ll?
+        int li_left = int(lambda_l / kSampleWidth) * kSampleWidth;
+        // What is the first lambda value that lies to the right ot lr?
+        int li_right = int(lambda_r / kSampleWidth) * kSampleWidth;
+
+        // Special case at the left end: from lambda_l to min(li_left+i, lr)
+    }
+    LOG(ERROR) << "incomplete";
+#endif  // CUBIC_SPLINE_INTERPOLATION
+    return r;
 }
 
 void SampledSpectrum::Init() {
@@ -95,8 +112,8 @@ void BlackbodyNormalized(const float* lambdas, int n, float temperature,
 						  float* emit_radiance)
 {
 	Blackbody(lambdas, n, temperature, emit_radiance);
-	constexpr float kWienDisplacement = 2.8977721e-3;
-	float lambda_max = kWienDisplacement * 1e9 / temperature;
+	constexpr float kWienDisplacement = 2.8977721e-3f;
+	float lambda_max = kWienDisplacement * 1e9f / temperature;
 	float max_L;
 	Blackbody(&lambda_max, 1, temperature, &max_L);
 	for (int i = 0; i < n; ++i) {

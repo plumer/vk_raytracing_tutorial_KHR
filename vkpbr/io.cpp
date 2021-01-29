@@ -27,7 +27,7 @@ std::string FindFile(const std::string& file_name, const std::vector<std::string
 
 
 std::string LoadBinaryFile(const std::string&              file_name,
-                               const std::vector<std::string>& directories)
+                           const std::vector<std::string>& directories)
 {
     auto full_path = FindFile(file_name, directories);
     if (full_path.empty()) {
@@ -45,8 +45,7 @@ std::string LoadBinaryFile(const std::string&              file_name,
     }
 }
 
-std::string LoadTextFile(const std::string&              file_name,
-                             const std::vector<std::string>& directories)
+std::string LoadTextFile(const std::string& file_name, const std::vector<std::string>& directories)
 {
     auto full_path = FindFile(file_name, directories);
     if (full_path.empty()) {

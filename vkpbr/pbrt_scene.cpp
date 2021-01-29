@@ -93,6 +93,31 @@ glm::vec3 ParseSpectrum(const std::vector<float>& numbers, const std::string& ke
     }
 }
 
+glm::vec3 ParseSpectrum(const std::string_view spd_file) {
+    std::ifstream file(spd_file);
+    if (!file) {
+        LOG(ERROR) << "Can't open file " << spd_file;
+        return glm::vec3{0.0f};
+    }
+
+    std::string lambda_str, v_str;
+    std::vector<float> lambdas, v;
+    while (!file.eof()) {
+        file >> lambda_str >> v_str;
+        if (!lambda_str.empty() && !v_str.empty()) {
+            lambdas.push_back(std::atof(lambda_str.c_str()));
+            v.push_back(std::atof(v_str.c_str()));
+        }
+    }
+
+    auto sampled = SampledSpectrum::FromSampled(lambdas.data(), v.data(), cast_i32(lambdas.size()));
+    RGBSpectrum rgb;
+    sampled.ToRgb(&rgb[0]);
+
+    file.close();
+    return glm::vec3(rgb[0], rgb[1], rgb[2]);
+}
+
 template <typename T>
 T parse_color(const std::vector<float>& numbers, const std::string& key)
 {
@@ -193,14 +218,14 @@ namespace vkpbr {
 
 // Based on either numbers or strings, creates a constant texture or retrieves an image texture from
 // `named_textures_`, and returns the index of the found/created texture descriptor.
-size_t SceneLoader::ConstantOrImageTexture(const std::vector<float>&       numbers,
+int SceneLoader::ConstantOrImageTexture(const std::vector<float>&       numbers,
                                            const std::vector<std::string>& strings,
                                            glm::vec3                       default_value)
 {
     if (!numbers.empty()) {
         glm::vec3 Kr_value = FromRgb(numbers);
         texture_descriptors_.emplace_back(Texture::Constant(Kr_value));
-        return texture_descriptors_.size() - 1;
+        return cast_i32(texture_descriptors_.size()) - 1;
     } else if (!strings.empty()) {
         std::string tex_name = strings.front();
         auto        iter     = named_textures_.find(tex_name);
@@ -208,9 +233,9 @@ size_t SceneLoader::ConstantOrImageTexture(const std::vector<float>&       numbe
         return iter->second;
     } else {
         texture_descriptors_.emplace_back(Texture::Constant(default_value));
-        return texture_descriptors_.size() - 1;
+        return cast_i32(texture_descriptors_.size()) - 1;
     }
-    return static_cast<size_t>(-1);
+    return static_cast<int>(-1);
 }
 
 
@@ -320,7 +345,7 @@ Light SceneLoader::ParseLight(const std::vector<param_node_t>& params,
             auto        full_path = (pbrt_file_root_path_ / map_name).string();
             std::string ext       = full_path.substr(full_path.size() - 3);
             if (ext != "png") {
-                LOG_ERROR << "unsupported for now";
+                LOG(ERROR) << "unsupported for now";
             } else {
 
                 int      image_width, image_height, image_channels;
@@ -339,7 +364,7 @@ Light SceneLoader::ParseLight(const std::vector<param_node_t>& params,
             }
 
             inf_light.transform          = ctm;
-            inf_light.envmap_image_index = image_contents_.size() - 1;
+            inf_light.envmap_image_index = cast_i32(image_contents_.size()) - 1;
         } else {
             inf_light.illuminance = radiance;
         }
@@ -399,11 +424,20 @@ Light SceneLoader::ParseLight(const std::vector<param_node_t>& params,
 Light ParseAreaLight(const std::vector<param_node_t>& params, const std::string& implementation,
                      const Transform& ctm)
 {
-    LOG(ERROR) << "unimplemented";
-    return Light{Light::Type::eArea};
+    LOG_IF(ERROR, implementation != "diffuse") << "PBRT only supports area light of diffuse";
+
+    Light light_info(Light::Type::eArea);
+    for (const auto& parameter : params) {
+        if (contains(parameter.key, "blackbody")) {
+            light_info.illuminance = ParseSpectrum(parameter.numbers, parameter.key);
+        } else {
+            LOG(INFO) << "unhandled parameter in parsing area light: " << parameter.key;
+        }
+    }
+    return light_info;
 }
 
-size_t SceneLoader::ParseMaterial(const std::vector<param_node_t>& params, const std::string& impl)
+int SceneLoader::ParseMaterial(const std::vector<param_node_t>& params, const std::string& impl)
 {
     /*
     Name	Implementation Class
@@ -428,7 +462,7 @@ size_t SceneLoader::ParseMaterial(const std::vector<param_node_t>& params, const
     std::vector<param_node_t> non_bumpmap_parameters;
 
     // The common part of all material: bump map.
-    size_t bump_map;
+    int bump_map;
     for (const auto& param : params) {
         if (contains(param.key, "string type")) {
             ;  // pass; this parameter has been consumed by the caller.
@@ -442,7 +476,7 @@ size_t SceneLoader::ParseMaterial(const std::vector<param_node_t>& params, const
 
     Material res(Material::Type::eGlass);
     if (impl == "mirror") {
-        size_t Kr_tex;
+        int Kr_tex = kNotFound;
         for (auto& parameter : params) {
             if (contains(parameter.key, "Kr")) {
                 Kr_tex =
@@ -452,13 +486,13 @@ size_t SceneLoader::ParseMaterial(const std::vector<param_node_t>& params, const
             }
         }
         if (Kr_tex == kNotFound) {
-            Kr_tex = ConstantOrImageTexture({}, {}, glm::vec3(0.9));
+            Kr_tex = ConstantOrImageTexture({}, {}, glm::vec3(0.9f));
         }
         CHECK_NE(Kr_tex, kNotFound) << "no parameters present for Kr";
         res.type            = Material::Type::eMirror;
         res.specular_tex_id = Kr_tex;
     } else if (impl == "matte") {
-        size_t diffuse_tex = kNotFound;
+        int diffuse_tex = kNotFound;
         float  sigma       = 0.f;
         for (auto p : non_bumpmap_parameters) {
             if (contains(p.key, "Kd")) {
@@ -482,22 +516,47 @@ size_t SceneLoader::ParseMaterial(const std::vector<param_node_t>& params, const
             } else if (contains(p.key, "uroughness")) {
                 res.u_roughness = p.numbers.size() > 1 ? p.numbers.front() : 0.1f;
                 if (!p.strings.empty())
-                    LOG_ERROR << "unimplemented textured roughness";
+                    LOG(ERROR) << "unimplemented textured roughness";
             } else if (contains(p.key, "vroughness")) {
                 res.v_roughness = p.numbers.size() > 1 ? p.numbers.front() : 0.1f;
                 if (!p.strings.empty())
-                    LOG_ERROR << "unimplemented textured roughness";
+                    LOG(ERROR) << "unimplemented textured roughness";
             } else if (p.key == "remaproughness") {
-                LOG_ERROR << "unimplemented: remap roughness at parsing time";
+                LOG(ERROR) << "unimplemented: remap roughness at parsing time";
             } else {
-                LOG_ERROR << "unhandled parameter: " << p.key;
+                LOG(ERROR) << "unhandled plastic parameter: " << p.key;
             }
         }
     } else if (impl == "metal") {
-        LOG(ERROR) << "unimplemented : metal material";
-        print_param(params);
+        res.type = Material::Type::eMetal;
+        for (auto p : params) {
+            if (contains(p.key, "roughness")) {
+                res.roughness_sigma = p.numbers.size() > 1 ? p.numbers.front() : 0.01f;
+            }
+            if (contains(p.key, "eta")) {
+                if (p.strings.size() == 1 && contains(p.strings.front(), "spd")) {
+                    fs::path spd_file_path = pbrt_file_root_path_ / p.strings.front();
+
+                    res.eta = ParseSpectrum(spd_file_path.string());
+                } else {
+                    res.eta = ParseSpectrum(p.numbers, p.key);
+                }
+            } else if (contains(p.key, " k")) { // Space before "k" on purpose
+                if (p.strings.size() == 1 && contains(p.strings.front(), "spd")) {
+                    fs::path  spd_file_path = pbrt_file_root_path_ / p.strings.front();
+                    res.eta_imaginary      = ParseSpectrum(spd_file_path.string());
+                } else {
+                    res.eta = ParseSpectrum(p.numbers, p.key);
+                }
+            } else {
+                LOG(ERROR) << "unimplemented metal parameter: " << p.key;
+            }
+        }
+        res.type = Material::Type::eMetal;
     } else if (impl == "uber") {
         float opacity = 1.0f;
+
+        int x = sizeof(Material);
 
         res.type = Material::Type::eUber;
         for (const auto& p : non_bumpmap_parameters) {
@@ -518,11 +577,12 @@ size_t SceneLoader::ParseMaterial(const std::vector<param_node_t>& params, const
             } else if (contains(p.key, "roughness")) {
                 res.roughness_sigma = p.numbers.empty() ? 0.1f : p.numbers.front();
             } else if (contains(p.key, "eta") || contains(p.key, "index")) {
-                res.eta = p.numbers.empty() ? 1.5f : p.numbers.front();
+                float eta_f = p.numbers.empty() ? 1.5f : p.numbers.front();
+                res.eta     = glm::vec3(eta_f, eta_f, eta_f);
             } else if (contains(p.key, "opacity")) {
                 opacity = p.numbers.empty() ? 1.0f : p.numbers.front();
             } else if (p.key == "remaproughness") {
-                LOG_ERROR << "unimplemented: remap roughness at parsing time";
+                LOG(ERROR) << "unimplemented: remap roughness at parsing time";
             } else {
                 LOG(ERROR) << "unhandled parameter: " << p.key;
             }
@@ -539,26 +599,38 @@ size_t SceneLoader::ParseMaterial(const std::vector<param_node_t>& params, const
                 res.transmissive_tex_id =
                     ConstantOrImageTexture(p.numbers, p.strings, glm::vec3(1.0f));
             } else if (contains(p.key, "eta")) {
-                res.eta = p.numbers.empty() ? 1.2f : p.numbers.front();
+                float eta_f = p.numbers.empty() ? 1.2f : p.numbers.front();
+                res.eta     = glm::vec3(eta_f, eta_f, eta_f);
             } else {
                 LOG(ERROR) << "Unsupported parameters: " << p.key;
             }
         }
-    } else if (impl == "translucent") {
-        LOG(ERROR) << "unimplemented : " << impl;
+    } else if (impl == "substrate") {
+        res.type = Material::Type::eSubstrate;
+        for (const auto& p : non_bumpmap_parameters) {
+            if (contains(p.key, "uroughness")) {
+                res.u_roughness = p.numbers.empty() ? 0.1f : p.numbers.front();
+            } else if (contains(p.key, "vroughness")) {
+                res.v_roughness = p.numbers.empty() ? 0.1f : p.numbers.front();
+            } else if (contains(p.key, "Kd")) {
+                res.diffuse_tex_id = ConstantOrImageTexture(p.numbers, p.strings, glm::vec3{0.5f});
+            } else if (contains(p.key, "Ks")) {
+                res.specular_tex_id = ConstantOrImageTexture(p.numbers, p.strings, glm::vec3{0.5f});
+            }
+        }
     } else {
-        LOG(ERROR) << "unimplemented : " << impl;
+        LOG(ERROR) << "unimplemented : " << impl << ", parameters = ";
         print_param(params);
     }
     material_descriptors_.push_back(res);
-    return material_descriptors_.size() - 1;
+    return cast_i32(material_descriptors_.size()) - 1;
 }
 
-size_t SceneLoader::ParseShape(const std::vector<param_node_t>& parameters,
+int SceneLoader::ParseShape(const std::vector<param_node_t>& parameters,
                                const std::string&               implementation)
 {
     PlyMesh mesh_model;
-    size_t  mesh_index = kNotFound;
+    int  mesh_index = kNotFound;
     if (implementation == "sphere") {
         float radius = 1.0f;
         float zmin = -radius, zmax = radius, phimax_degree = 360.0f;
@@ -568,7 +640,7 @@ size_t SceneLoader::ParseShape(const std::vector<param_node_t>& parameters,
                 radius = p.numbers.front();
             }
         }
-        LOG_ERROR << "unimplemented";
+        LOG(ERROR) << "unimplemented";
         // shape.reset(new Sphere(ctm, nullptr, false, radius, phimax_degree, zmin, zmax));
     } else if (implementation == "trianglemesh") {
         std::vector<int>       indices;
@@ -583,28 +655,28 @@ size_t SceneLoader::ParseShape(const std::vector<param_node_t>& parameters,
                     indices.push_back(static_cast<int>(n));
             } else if (contains(p.key, "P")) {
                 CHECK_EQ(numbers.size() % 3, 0) << "positions not a multiple of 3";
-                for (size_t i = 0; i < numbers.size(); i += 3) {
+                for (int i = 0; i < numbers.size(); i += 3) {
                     positions.push_back(glm::vec3(numbers[i + 0], numbers[i + 1], numbers[i + 2]));
                 }
             } else if (contains(p.key, "N")) {
                 CHECK_EQ(numbers.size() % 3, 0) << "normals not a multiple of 3";
-                for (size_t i = 0; i < numbers.size(); i += 3) {
+                for (int i = 0; i < numbers.size(); i += 3) {
                     normals.push_back(glm::vec3(numbers[i + 0], numbers[i + 1], numbers[i + 2]));
                 }
             } else if (contains(p.key, "S")) {
                 CHECK_EQ(numbers.size() % 3, 0) << "tangents not a multiple of 3";
-                for (size_t i = 0; i < numbers.size(); i += 3) {
+                for (int i = 0; i < numbers.size(); i += 3) {
                     tangents.push_back(glm::vec3(numbers[i + 0], numbers[i + 1], numbers[i + 2]));
                 }
             } else if (contains(p.key, "uv") || contains(p.key, "st")) {
                 CHECK_EQ(numbers.size() % 2, 0) << "uv coords not a multiple of 2";
-                for (size_t i = 0; i < numbers.size(); i += 2) {
+                for (int i = 0; i < numbers.size(); i += 2) {
                     texture_coords.push_back(glm::vec2(numbers[i + 0], numbers[i + 1]));
                 }
             }
         }
         int max_index = *std::max_element(indices.begin(), indices.end());
-        CHECK_LT(max_index, positions.size());
+        CHECK_LT(max_index, cast_i32(positions.size()));
         if (!normals.empty()) {
             CHECK_EQ(normals.size(), positions.size());
         } else {
@@ -622,7 +694,7 @@ size_t SceneLoader::ParseShape(const std::vector<param_node_t>& parameters,
         mesh_model.texture_uvs = std::move(texture_coords);
         mesh_model.indices     = std::move(indices);
         meshes_.push_back(std::move(mesh_model));
-        mesh_index = meshes_.size() - 1;
+        mesh_index = cast_i32(meshes_.size()) - 1;
     } else if (implementation == "plymesh" || implementation == "objmesh") {
         // 1. Obtain the ply file name from the scene AST.
         // 2. Check if the desired mesh has been cached in `this->meshes_`
@@ -662,7 +734,7 @@ size_t SceneLoader::ParseShape(const std::vector<param_node_t>& parameters,
             meshes_.push_back(std::move(tri_bvh));
 
             // cache the loaded mesh
-            mesh_index                                = meshes_.size() - 1;
+            mesh_index                                = cast_i32(meshes_.size()) - 1;
             named_meshes_descriptors_[mesh_file_name] = mesh_index;
         }
         // TODO: figure out how to incorporate the transform.
@@ -671,7 +743,7 @@ size_t SceneLoader::ParseShape(const std::vector<param_node_t>& parameters,
 }
 
 
-size_t SceneLoader::ParseTexture(const std::vector<param_node_t>& parameters,
+int SceneLoader::ParseTexture(const std::vector<param_node_t>& parameters,
                                  const std::string&               implementation)
 {
     std::vector<param_node_t> non_mapping_parameters;
@@ -800,7 +872,7 @@ size_t SceneLoader::ParseTexture(const std::vector<param_node_t>& parameters,
         auto        fullpath = (pbrt_file_root_path_ / filename).string();
         std::string ext      = fullpath.substr(fullpath.size() - 3);
         if (ext != "png") {
-            LOG_ERROR << "unsupported for now";
+            LOG(ERROR) << "unsupported for now";
         } else {
 
             int      image_width, image_height, image_channels;
@@ -818,7 +890,7 @@ size_t SceneLoader::ParseTexture(const std::vector<param_node_t>& parameters,
             image_contents_.push_back(std::move(image_data));
         }
         result_texture.type    = Texture::Type::eSampledImage;
-        result_texture.sampler = image_contents_.size() - 1;
+        result_texture.sampler = cast_i32(image_contents_.size()) - 1;
 
     } else if (implementation == "mix") {
         LOG(ERROR) << "unimplemented: mix. parameters: ";
@@ -852,7 +924,8 @@ size_t SceneLoader::ParseTexture(const std::vector<param_node_t>& parameters,
             }
         }
     } else {
-        LOG(ERROR) << "unimplemented material of implementation " << implementation;
+        LOG(ERROR) << "unimplemented texture of implementation " << implementation
+                   << ", parameters = ";
         print_param(parameters);
         result_texture = Texture::Constant({0.5f, 0.5f, 0.5f});
     }
@@ -861,13 +934,13 @@ size_t SceneLoader::ParseTexture(const std::vector<param_node_t>& parameters,
         return kNotFound;
     } else {
         texture_descriptors_.push_back(result_texture);
-        return static_cast<size_t>(texture_descriptors_.size() - 1);
+        return static_cast<int>(texture_descriptors_.size() - 1);
     }
 }
 
 bool SceneLoader::traverse_tree()
 {
-    // Cleans up what we had.
+    SampledSpectrum::Init();
 
     // Initializes the status stack with a set of default values.
     ctm_stack_.clear();
@@ -897,7 +970,7 @@ bool SceneLoader::TraverseWorldItem(const worlditem_node_t& wi)
     } else if (wi.directive == wi_t::Shape) {
 
         std::vector<param_node_t> non_alpha_params;
-        size_t                    alpha_texture;
+        int                    alpha_texture;
         for (const auto& param : wi.params) {
             if (contains(param.key, "shadowalpha")) {
                 LOG(ERROR) << "shape has (unimplemented) shadow alpha texture "
@@ -912,7 +985,7 @@ bool SceneLoader::TraverseWorldItem(const worlditem_node_t& wi)
         }
 
         size_t old_num_meshes = meshes_.size();
-        size_t mesh_index     = ParseShape(non_alpha_params, strip_quotes(wi.implementation));
+        int mesh_index     = ParseShape(non_alpha_params, strip_quotes(wi.implementation));
         if (mesh_index == kNotFound) {
             LOG(ERROR) << "Error parsing shape";
             return false;
@@ -921,7 +994,11 @@ bool SceneLoader::TraverseWorldItem(const worlditem_node_t& wi)
         }
         MeshInstance mesh_instance;
         mesh_instance.mesh_index     = mesh_index;
-        mesh_instance.material_index = current_material_;
+        if (current_emitting_material_ != kNotFound) {
+            mesh_instance.material_index = current_emitting_material_;
+        } else {
+            mesh_instance.material_index = current_material_;
+        }
         mesh_instance.obj_to_world   = ctm_stack_.back();
         mesh_instances_.push_back(mesh_instance);
     } else if (wi.directive == wi_t::AttrPair) {
@@ -932,6 +1009,7 @@ bool SceneLoader::TraverseWorldItem(const worlditem_node_t& wi)
         reverse_orientation_stack.push_back(last_ro);
 
         const auto& children = wi.child;
+        current_emitting_material_ = kNotFound;
 
         for (const auto& child : children) {
             TraverseWorldItem(child);
@@ -939,6 +1017,8 @@ bool SceneLoader::TraverseWorldItem(const worlditem_node_t& wi)
 
         ctm_stack_.pop_back();
         reverse_orientation_stack.pop_back();
+        current_emitting_material_ = kNotFound;
+
     } else if (wi.directive == wi_t::TransPair) {
         // Pushes ctm only.
         Transform last_trans = ctm_stack_.back();
@@ -961,7 +1041,7 @@ bool SceneLoader::TraverseWorldItem(const worlditem_node_t& wi)
 
         bool create_success = CreateObject(wi.child, wi.object_name);
         if (create_success) {
-            named_objects_[wi.object_name] = object_descriptors_.size() - 1;
+            named_objects_[wi.object_name] = cast_i32(object_descriptors_.size()) - 1;
         }
         ctm_stack_.pop_back();
     } else if (wi.directive == wi_t::ObjInst) {
@@ -987,8 +1067,15 @@ bool SceneLoader::TraverseWorldItem(const worlditem_node_t& wi)
         lights_.emplace_back(ParseLight(wi.params, impl));
     } else if (wi.directive == wi_t::AreaLight) {
         // Parses an arealight.
-        auto impl = strip_quotes(wi.implementation);
-        lights_.emplace_back(ParseAreaLight(wi.params, impl, ctm_stack_.back()));
+        auto    impl       = strip_quotes(wi.implementation);
+        Light   light_info = ParseAreaLight(wi.params, impl, ctm_stack_.back());
+
+        // Effectively sets the current material - all subsequent shapes will bear the emission.
+
+        Material mtl(Material::Type::eMatte);
+        mtl.emission = light_info.illuminance;
+        material_descriptors_.push_back(mtl);
+        current_emitting_material_ = cast_i32(material_descriptors_.size()) - 1;
     } else if (wi.directive == wi_t::Texture) {
         // Parses a texture and adds it to the pool.
         const auto& tex_name       = wi.tex_name;
@@ -1030,6 +1117,15 @@ bool SceneLoader::TraverseWorldItem(const worlditem_node_t& wi)
         }
         auto material              = ParseMaterial(wi.params, implementation);
         named_materials_[mtl_name] = material;
+    } else if (wi.directive == wi_t::MaterialInst) {
+        // Retrieves a material from the named materials and set it as the current material.
+        auto iter         = named_materials_.find(wi.inst_name);
+        if (iter == named_materials_.end())
+            LOG(ERROR) << "named material not found";
+        else
+            current_material_ = named_materials_[wi.inst_name];
+    } else {
+        LOG(ERROR) << "unhandled world item directive: " << wi.DirectiveName();
     }
     return true;
 }
@@ -1057,10 +1153,10 @@ bool SceneLoader::CreateObject(const std::vector<worlditem_node_t>& children,
         LOG(INFO) << "\t" << name;
     }
 
-    const size_t kNumExistingImages    = image_contents_.size();
-    const size_t kNumExistingTextures  = texture_descriptors_.size();
-    const size_t kNumExistingMaterials = material_descriptors_.size();
-    const size_t kNumExistingMeshes    = meshes_.size();
+    const int kNumExistingImages    = cast_i32(image_contents_.size());
+    const int kNumExistingTextures  = cast_i32(texture_descriptors_.size());
+    const int kNumExistingMaterials = cast_i32(material_descriptors_.size());
+    const int kNumExistingMeshes    = cast_i32(meshes_.size());
 
     // Transfers the loaded images to the main scene loader.
     // ---------------------------------------------------------------------------------------------
@@ -1087,7 +1183,7 @@ bool SceneLoader::CreateObject(const std::vector<worlditem_node_t>& children,
         }
     }
     {
-        std::set<size_t> indices;
+        std::set<int> indices;
         for (const auto &[name, tex_index]: named_textures_) {
             if (indices.find(tex_index) != indices.end()) {
                 LOG(FATAL) << "duplicate indices: " << name << ',' << tex_index;
@@ -1152,6 +1248,7 @@ bool Scene::LoadFromFile(const char* file_name)
     }
 
     pbr::Tokenizer tokenizer(&file_in);
+    tokenizer.set_directory(file_name);
     scene_t        scene_root;
     pbr::Parser    parser(tokenizer, &scene_root);
     int            parse_error_code = parser.parse();
@@ -1185,6 +1282,48 @@ bool Scene::LoadFromAst(const scene_t* root, const std::filesystem::path& root_p
     this->material_descriptors_     = std::move(loader.material_descriptors_);
     this->named_materials_          = std::move(loader.named_materials_);
     this->mesh_instances_           = std::move(loader.mesh_instances_);
+
+    // If `tex_id` indexes into texture_descriptors_ as a valid constant index, writes the
+    // constant color to `color` and sets `tex_id` to -1.
+    auto GetConstantColor = [this](int *tex_id, glm::vec3* color) {
+        if (*tex_id < 0)
+            return;
+        if (texture_descriptors_[*tex_id].type == Texture::Type::eConstant) {
+            *color = texture_descriptors_[*tex_id].constant_color;
+            *tex_id = -1;
+        }
+    };
+
+    // Moves constant textures to material descriptors.
+    for (Material& mtl : material_descriptors_) {
+        GetConstantColor(&mtl.diffuse_tex_id, &mtl.diffuse);
+        GetConstantColor(&mtl.specular_tex_id, &mtl.specular);
+        GetConstantColor(&mtl.reflective_tex_id, &mtl.reflective);
+        GetConstantColor(&mtl.transmissive_tex_id, &mtl.transmissive);
+    }
+    { // Removes unreferenced textures.
+        std::vector<bool> referenced_textures(texture_descriptors_.size(), false);
+        for (const auto& [name, index] : named_textures_)
+            referenced_textures[index] = true;
+        for (const auto& mtl : material_descriptors_) {
+            if (mtl.diffuse_tex_id >= 0)
+                referenced_textures[mtl.diffuse_tex_id] = true;
+            if (mtl.specular_tex_id >= 0)
+                referenced_textures[mtl.specular_tex_id] = true;
+            if (mtl.reflective_tex_id >= 0)
+                referenced_textures[mtl.reflective_tex_id] = true;
+            if (mtl.transmissive_tex_id >= 0)
+                referenced_textures[mtl.transmissive_tex_id] = true;
+        }
+        for (const auto& tex : texture_descriptors_) {
+            for (int index : tex.checker_indices)
+                if (index >= 0)
+                    referenced_textures[index] = true;
+        }
+
+
+
+    }
 
     return true;
 }

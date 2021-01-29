@@ -189,7 +189,8 @@ int main(int argc, char** argv)
 
     //helloVk.PrepareScene();
     helloVk.PrepareCornellBox();
-
+    //constexpr char* kPbrtPath = "C:/Users/zixun/source/pbrt-v3-scenes";
+    //helloVk.PreparePbrtScene(io::FindFile("bathroom/bathroom.pbrt", {kPbrtPath}));
 
     helloVk.createOffscreenRender();
     helloVk.createDescriptorSetLayout();

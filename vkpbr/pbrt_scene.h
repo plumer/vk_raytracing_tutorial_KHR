@@ -16,7 +16,7 @@ struct PlyMesh {
     std::vector<glm::vec3> normals;
     std::vector<glm::vec2> texture_uvs;
     std::vector<i32>       indices;
-    size_t                 material_index = cast_u64(-1);
+    int                 material_index = -1;
 };
 
 /** 
@@ -32,8 +32,8 @@ struct VertexData {
 };
 
 struct MeshInstance {
-    size_t    mesh_index     = -1;
-    size_t    material_index = -1;
+    int    mesh_index     = -1;
+    int    material_index = -1;
     glm::mat4 obj_to_world   = glm::mat4(1.0f);
 };
 
@@ -73,10 +73,10 @@ struct Texture {
         static const char * names[] = {"None", "Constant", "Checkered", "Bilinear", "SampledImage"};
         return names[cast_u32(type)];
     }
-    glm::vec3 constant_color;
-    glm::vec3 bilinear_colors[4];
-    size_t    checker_indices[2] = {static_cast<size_t>(-1), static_cast<size_t>(-1)};
-    size_t    sampler            = -1;
+    glm::vec3 constant_color = glm::vec3{0.0f};
+    glm::vec3 bilinear_colors[4] = {glm::vec3{0.0f}};
+    int    checker_indices[2] = {-1, -1};
+    int    sampler            = -1;
 
     static Texture Constant(glm::vec3 color)
     {
@@ -100,23 +100,31 @@ struct Texture {
 
 // PBRT-style material.
 struct Material {
-    enum class Type { eMatte, ePlastic, eMetal, eMirror, eGlass, eUber } type;
+    enum class Type : int { eMatte, ePlastic, eMetal, eMirror, eGlass, eSubstrate, eUber } type;
     const char *TypeName() const {
         static const char * names[] = {"Matte", "Plastic", "Metal", "Mirror", "Glass", "Uber"};
         return names[cast_u32(type)];
     }
-    size_t   diffuse_tex_id      = -1;  // eMatte, ePlastic
-    size_t   specular_tex_id     = -1;  // eMirror, ePlastic
-    size_t   reflective_tex_id   = -1;  // eUber
-    size_t   transmissive_tex_id = -1;  // eUber
-    float eta                 = 0.0;
-    float eta_imaginary       = 0.0;
+    glm::vec3 diffuse             = glm::vec3{0.0f};
+    int       diffuse_tex_id      = -1;  // eMatte, ePlastic, eSubstrate
+    glm::vec3 specular            = glm::vec3{0.0f};
+    int       specular_tex_id     = -1;  // eMirror, ePlastic, eSubstrate
+    glm::vec3 reflective          = glm::vec3{0.0f};
+    int       reflective_tex_id   = -1;  // eUber
+    glm::vec3 transmissive        = glm::vec3{0.0f};
+    int       transmissive_tex_id = -1;  // eUber
+    glm::vec3 emission            = glm::vec3{0.0f};
+
+    glm::vec3 eta                 = glm::vec3{0.0f}; // Metal & Dielectric
+    glm::vec3 eta_imaginary       = glm::vec3{0.0f}; // Metal
     float roughness_sigma     = 0.0;  // eMatte
     float u_roughness         = 0.0;  // ePlastic
     float v_roughness         = 0.0;  // ePlastic
     explicit Material(Type t)
         : type(t)
     {}
+
+    static_assert(sizeof(type) == 4, "type doesn't take 4 bytes");
 };
 
 // PBRT-style light.
@@ -130,7 +138,7 @@ struct Light {
     glm::mat4 transform;
     glm::vec3 direction;
     // For InfiniteAreaLight. If -1, look for illuminance.
-    size_t envmap_image_index = static_cast<size_t>(-1);
+    int envmap_image_index = -1;
     
     // For spot light.
     float cone_angle_degree = 0.0f;
@@ -185,17 +193,17 @@ class Scene
     // From 2020-09-27
 
     // Caches the named objects by directives `ObjectBegin`/`ObjectEnd`
-    std::vector<Object>           object_descriptors_;
-    std::map<std::string, size_t> named_objects_;
+    std::vector<Object>        object_descriptors_;
+    std::map<std::string, int> named_objects_;
 
-    std::vector<Texture>          texture_descriptors_;
-    std::map<std::string, size_t> named_textures_;
+    std::vector<Texture>       texture_descriptors_;
+    std::map<std::string, int> named_textures_;
 
-    std::vector<PlyMesh>          meshes_;
-    std::map<std::string, size_t> named_meshes_descriptors_;
+    std::vector<PlyMesh>       meshes_;
+    std::map<std::string, int> named_meshes_descriptors_;
 
-    std::vector<Material>         material_descriptors_;
-    std::map<std::string, size_t> named_materials_;
+    std::vector<Material>      material_descriptors_;
+    std::map<std::string, int> named_materials_;
 
     std::vector<Light> lights_;
 
@@ -205,9 +213,6 @@ class Scene
     std::vector<MeshInstance> mesh_instances_;
 
   private:
-    // TODO(zixun): make use of this member.
-    // Organizes all low_level_primitives as a
-    // std::unique_ptr<BVHAccel> top_level_as_;
 
     // std::map<std::string, std::shared_ptr<tex::Texture<float>>>    named_float_textures_;
     // std::map<std::string, std::shared_ptr<tex::Texture<Spectrum>>> named_color_textures_;
@@ -233,8 +238,8 @@ class SceneLoader
     // Creates a texture based on implementation and parameters.
     // If additional textures need to be created, they are added implicitly as well.
     // Returns the index to the texture_descriptors_.
-    size_t ParseTexture(const std::vector<param_node_t>& parameters,
-                        const std::string&               implementation);
+    int ParseTexture(const std::vector<param_node_t>& parameters,
+                     const std::string&               implementation);
 
     /**
      * Creates a Material based on implementation and parameters, and returns the index to
@@ -242,12 +247,11 @@ class SceneLoader
      * If additional textures are needed, they are added to texture_descriptor_ implicitly.
      * \return
      */
-    size_t ParseMaterial(const std::vector<param_node_t>& params, const std::string& impl);
+    int ParseMaterial(const std::vector<param_node_t>& params, const std::string& impl);
 
     // Makes a shape from the parameters, adds it to meshes_, and returns its index in meshes_.
     // Currently supports triangle meshes, either from pbrt file or .obj/.ply file.
-    size_t ParseShape(const std::vector<param_node_t>& parameters,
-                      const std::string&               implementation);
+    int ParseShape(const std::vector<param_node_t>& parameters, const std::string& implementation);
 
     /**
      * Returns the index to the named textures. Either numbers or strings is empty.
@@ -258,8 +262,8 @@ class SceneLoader
      * \param default_value
      * \return
      */
-    size_t ConstantOrImageTexture(const std::vector<float>&       numbers,
-                                  const std::vector<std::string>& strings, glm::vec3 default_value);
+    int ConstantOrImageTexture(const std::vector<float>&       numbers,
+                               const std::vector<std::string>& strings, glm::vec3 default_value);
 
   private:
     const scene_t* scene_root_ = nullptr;
@@ -267,24 +271,25 @@ class SceneLoader
     // Stacks of loader's current states.
     std::vector<bool>      reverse_orientation_stack;
     std::vector<glm::mat4> ctm_stack_;
-    size_t                 current_material_ = kNotFound;
+    int                 current_material_          = kNotFound;
+    int                 current_emitting_material_ = kNotFound;
 
     // Records the path of the root PBRT file. It is used to compute paths to
     // images/plymesh files when needed.
     std::filesystem::path pbrt_file_root_path_;
 
     // Caches the named objects by directives `ObjectBegin`/`ObjectEnd`
-    std::vector<Object>           object_descriptors_;
-    std::map<std::string, size_t> named_objects_;
+    std::vector<Object>        object_descriptors_;
+    std::map<std::string, int> named_objects_;
 
-    std::vector<Texture>          texture_descriptors_;
-    std::map<std::string, size_t> named_textures_;
+    std::vector<Texture>       texture_descriptors_;
+    std::map<std::string, int> named_textures_;
 
-    std::vector<PlyMesh>          meshes_;
-    std::map<std::string, size_t> named_meshes_descriptors_;  // Maps from file name to mesh.
+    std::vector<PlyMesh>       meshes_;
+    std::map<std::string, int> named_meshes_descriptors_;  // Maps from file name to mesh.
 
-    std::vector<Material>         material_descriptors_;
-    std::map<std::string, size_t> named_materials_;
+    std::vector<Material>      material_descriptors_;
+    std::map<std::string, int> named_materials_;
 
     std::vector<Light> lights_;
 
@@ -301,7 +306,7 @@ class SceneLoader
     // This loader class would take care of the parsing AST, parsing context
     // (CTM stack and material stack) and some other stuff.
     friend class Scene;
-    static constexpr size_t kNotFound = static_cast<size_t>(-1);
+    static constexpr int kNotFound = -1;
 };
 
 

@@ -40,8 +40,8 @@ extern std::vector<std::string> defaultSearchPaths;
 #include "meshloader.h"
 #include "nvvk/pipeline_vk.hpp"
 #include "vk_utils.h"
-
 #include <glm/gtx/transform.hpp>
+#include "pbrt_scene.h"
 
 
 // Holding the camera matrices
@@ -53,6 +53,11 @@ struct CameraMatrices {
     glm::mat4 projInverse;
 };
 
+namespace {
+using vkBU   = vk::BufferUsageFlagBits;
+using vkrtBU = vkrt::BufferUsageFlagBits;
+using vkSS   = vk::ShaderStageFlagBits;
+}
 
 //--------------------------------------------------------------------------------------------------
 // Keep the handle on the device
@@ -535,6 +540,74 @@ void HelloVulkan::PrepareCornellBox()
     cmd_pool.SubmitAndWait(cmd_buffer);
     allocator_.ReleaseAllStagingBuffers();
 }
+
+void HelloVulkan::PreparePbrtScene(const std::string& pbrt_file_name) {
+    vkpbr::Scene scene;
+    if (!scene.LoadFromFile(pbrt_file_name.c_str())) {
+        LOG(ERROR) << "Loading pbrt scene file from " << pbrt_file_name << " failed";
+        return;
+    }
+
+    vkpbr::CommandPool cmd_pool(m_device, m_graphicsQueueIndex);
+    auto               cmd_buffer = cmd_pool.MakeCmdBuffer();
+
+    for (const auto& mesh : scene.meshes_) {
+        auto vertex_data = Interleave(mesh.positions, mesh.normals, mesh.texture_uvs);
+        ObjModel model;
+        model.num_vertices = vertex_data.size();
+        model.num_indices = mesh.indices.size();
+        model.vertexBuffer = allocator_.MakeBuffer(cmd_buffer, vertex_data,
+                                                   vkBU::eVertexBuffer | vkBU::eStorageBuffer
+                                                       | vkBU::eShaderDeviceAddress
+                                                       | vkrtBU::eBvhBuildInputReadOnly);
+        model.indexBuffer  = allocator_.MakeBuffer(cmd_buffer, mesh.indices,
+                                                  vkBU::eIndexBuffer | vkBU::eStorageBuffer
+                                                      | vkBU::eShaderDeviceAddress
+                                                      | vkrtBU::eBvhBuildInputReadOnly);
+        m_objModel.push_back(model);
+    }
+
+    auto GetConstantColor = [&scene](size_t index) -> nvmath::vec3f {
+        vkpbr::Texture t = scene.texture_descriptors_[index];
+        if (t.type == vkpbr::Texture::Type::eConstant) {
+            return nvmath::vec3f(t.constant_color.x, t.constant_color.y, t.constant_color.z);
+        } else {
+            LOG(ERROR) << "not constant";
+            return {0.0f, 0.0f, 0.0f};
+        }
+    };
+
+    for (const auto& m : scene.material_descriptors_) {
+        MaterialObj mtl;
+        if (m.diffuse_tex_id != -1)
+            mtl.diffuse = GetConstantColor(m.diffuse_tex_id);
+        if (m.specular_tex_id != -1)
+            mtl.specular = GetConstantColor(m.specular_tex_id);
+        if (m.transmissive_tex_id != -1)
+            mtl.transmittance = GetConstantColor(m.transmissive_tex_id);
+
+        mtl.textureID = m.reflective_tex_id;
+        mtl.ior       = m.eta[0];
+        universal_materials_.push_back(mtl);
+    }
+
+    sizeof(vkpbr::Material);
+
+    for (const auto& instance : scene.mesh_instances_) {
+        ObjInstance inst;
+        inst.objIndex = instance.mesh_index;
+        inst.mtl_index = instance.material_index;
+        inst.transform = instance.obj_to_world;
+        inst.transformIT = glm::transpose(glm::inverse(instance.obj_to_world));
+
+        m_objInstance.push_back(inst);
+    }
+
+    // For inserting debugging breakpoints.
+    return;
+}
+
+
 
 //--------------------------------------------------------------------------------------------------
 // Creating the uniform buffer holding the camera matrices
