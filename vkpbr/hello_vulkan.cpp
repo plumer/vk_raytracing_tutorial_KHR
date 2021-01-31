@@ -132,6 +132,9 @@ void HelloVulkan::createDescriptorSetLayout()
     // Camera matrices (binding = 0)
     m_descSetLayoutBind.AddBinding(
         vkDS(0, vkDT::eUniformBuffer, 1, vkSS::eVertex | vkSS::eRaygenKHR));
+    // PBRT materials (binding = 1)
+    m_descSetLayoutBind.AddBinding(vkDS(RtDsb::kPbrtMaterials, vkDT::eStorageBuffer, 1,
+                                        vkSS::eFragment | vkSS::eClosestHitKHR));
     // Scene description (binding = 2)
     m_descSetLayoutBind.AddBinding(  //
         vkDS(2, vkDT::eStorageBuffer, 1, vkSS::eVertex | vkSS::eFragment | vkSS::eClosestHitKHR));
@@ -173,9 +176,13 @@ void HelloVulkan::updateDescriptorSet()
     vk::DescriptorBufferInfo dbiSceneDesc{m_sceneDesc.handle, 0, VK_WHOLE_SIZE};
     writes.emplace_back(m_descSetLayoutBind.MakeWrite(m_descSet, 2, &dbiSceneDesc));
 
-    // All material buffers, 1 buffer per OBJ
-    std::vector<vk::DescriptorBufferInfo> dbiMat;
-    std::vector<vk::DescriptorBufferInfo> dbiMatIdx;
+    // Materials.
+    vk::DescriptorBufferInfo dbi_pbrt_mtls{/*buffer=*/pbrt_materials_buffer_.handle,
+                                           /*offset=*/0, /*range=*/ VK_WHOLE_SIZE};
+    writes.emplace_back(
+        m_descSetLayoutBind.MakeWrite(m_descSet, RtDsb::kPbrtMaterials, &dbi_pbrt_mtls));
+
+    // 2 buffers per mesh object, 1 for vertex data and 1 for index.
     std::vector<vk::DescriptorBufferInfo> dbiVert;
     std::vector<vk::DescriptorBufferInfo> dbiIdx;
     for (auto& obj : m_objModel) {
@@ -532,11 +539,25 @@ void HelloVulkan::PrepareCornellBox()
         m_objInstance.push_back(instance);
     }
     createTextureImages(cmd_buffer, {});
-    
+
+    // Converts materials to pbrt format...
+    for (const auto& mtl : universal_materials_) {
+        vkpbr::Material m(vkpbr::Material::Type::eMatte);
+        if (nvmath::length(mtl.diffuse) > 0) {
+            m.diffuse = {mtl.diffuse.x, mtl.diffuse.y, mtl.diffuse.z};
+        }
+        if (nvmath::length(mtl.emission) > 0) {
+            m.emission = {mtl.emission.x, mtl.emission.y, mtl.emission.z};
+        }
+        pbrt_materials_.push_back(m);
+    }
+    pbrt_materials_buffer_ =
+        allocator_.MakeBuffer(cmd_buffer, pbrt_materials_, vkBU::eStorageBuffer);
+
     // Creates the shader-storage buffer for the universal materials.
     materials_buffer_ =
         allocator_.MakeBuffer(cmd_buffer, universal_materials_, vkBU::eStorageBuffer);
-
+    sizeof(vkpbr::Material);
     cmd_pool.SubmitAndWait(cmd_buffer);
     allocator_.ReleaseAllStagingBuffers();
 }
@@ -551,6 +572,7 @@ void HelloVulkan::PreparePbrtScene(const std::string& pbrt_file_name) {
     vkpbr::CommandPool cmd_pool(m_device, m_graphicsQueueIndex);
     auto               cmd_buffer = cmd_pool.MakeCmdBuffer();
 
+    // Sends mesh vertex and index data to GPU in buffers.
     for (const auto& mesh : scene.meshes_) {
         auto vertex_data = Interleave(mesh.positions, mesh.normals, mesh.texture_uvs);
         ObjModel model;
@@ -570,6 +592,7 @@ void HelloVulkan::PreparePbrtScene(const std::string& pbrt_file_name) {
     auto GetConstantColor = [&scene](size_t index) -> nvmath::vec3f {
         vkpbr::Texture t = scene.texture_descriptors_[index];
         if (t.type == vkpbr::Texture::Type::eConstant) {
+            LOG(ERROR) << "shouldn't happen...";
             return nvmath::vec3f(t.constant_color.x, t.constant_color.y, t.constant_color.z);
         } else {
             LOG(ERROR) << "not constant";
@@ -591,8 +614,6 @@ void HelloVulkan::PreparePbrtScene(const std::string& pbrt_file_name) {
         universal_materials_.push_back(mtl);
     }
 
-    sizeof(vkpbr::Material);
-
     for (const auto& instance : scene.mesh_instances_) {
         ObjInstance inst;
         inst.objIndex = instance.mesh_index;
@@ -602,6 +623,11 @@ void HelloVulkan::PreparePbrtScene(const std::string& pbrt_file_name) {
 
         m_objInstance.push_back(inst);
     }
+
+    // Sends material as a buffer to Vulkan.
+    pbrt_materials_ = scene.material_descriptors_;
+    pbrt_materials_buffer_ =
+        allocator_.MakeBuffer(cmd_buffer, pbrt_materials_, vkBU::eStorageBuffer);
 
     // For inserting debugging breakpoints.
     return;
@@ -732,6 +758,7 @@ void HelloVulkan::destroyResources()
     m_cameraMat.DestroyFrom(m_device);
     m_sceneDesc.DestroyFrom(m_device);
     materials_buffer_.DestroyFrom(m_device);
+    pbrt_materials_buffer_.DestroyFrom(m_device);
 
     for (auto& m : m_objModel) {
         m.vertexBuffer.DestroyFrom(m_device);

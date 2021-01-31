@@ -123,6 +123,7 @@ struct Material {
     explicit Material(Type t)
         : type(t)
     {}
+    i32 __dummy = 0;
 
     static_assert(sizeof(type) == 4, "type doesn't take 4 bytes");
 };

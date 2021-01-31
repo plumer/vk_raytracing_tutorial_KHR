@@ -13,7 +13,13 @@ hitAttributeEXT vec2 attribs;
 layout(location = 0) rayPayloadInEXT hitPayload payload_in;
 layout(location = 1) rayPayloadEXT bool isShadowed;
 
+// Ray-tracing descriptors
+// ------------------------------------------------------------------------------------------------
 layout(binding = 0, set = 0) uniform accelerationStructureEXT topLevelAS;
+
+// Regular descriptors
+// ------------------------------------------------------------------------------------------------
+layout(binding = 1, set = 1, scalar) buffer PbrtMaterialArray {PbrtMaterial mtls[];} p_mtls;
 
 // Stores information for all object instances (ID, transform, etc) in the scene.
 // Can be indexed by gl_InstanceID.
@@ -106,6 +112,8 @@ void main()
     int matIdx = scene.instances[gl_InstanceID].mtl_index;
     WaveFrontMaterial mat = u_mtls.mtls[nonuniformEXT(matIdx)];
 
+    PbrtMaterial p_mat = p_mtls.mtls[nonuniformEXT(matIdx)];
+
     // Determines the light to scatter according to material.
 
     vec3 tangent, bitangent;
@@ -114,12 +122,12 @@ void main()
 
     const float lambertian_pdf = 1.0 / 3.1415926;
     float       cos_theta      = dot(wi_world, normal);
-    vec3        BRDF           = mat.diffuse / M_PI;
+    vec3        BRDF           = p_mat.diffuse / M_PI;
 
 
     payload_in.ray_origin    = worldPos;
     payload_in.ray_direction = wi_world;
-    payload_in.hitValue      = mat.emission;
+    payload_in.hitValue      = p_mat.emission;
     payload_in.weight        = BRDF * cos_theta / lambertian_pdf;
     return;
 }

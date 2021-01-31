@@ -1321,8 +1321,37 @@ bool Scene::LoadFromAst(const scene_t* root, const std::filesystem::path& root_p
                     referenced_textures[index] = true;
         }
 
+        std::vector<Texture> condensed_textures;
+        std::map<int, int>   index_map;
+        for (int i = 0; i < referenced_textures.size(); ++i) {
+            if (referenced_textures[i]) {
+                condensed_textures.push_back(texture_descriptors_[i]);
+                index_map[i] = condensed_textures.size() - 1;
+            }
+        }
 
+        // Remaps texture indices.
+        for (auto& mtl : material_descriptors_) {
+#define REMAP(index_member)                                                                        \
+    if (mtl.index_member >= 0) {                                                                   \
+        CHECK(index_map.find(mtl.index_member) != index_map.end());                                \
+        mtl.index_member = index_map[mtl.index_member];                                            \
+    }
+            REMAP(diffuse_tex_id);
+            REMAP(specular_tex_id);
+            REMAP(reflective_tex_id);
+            REMAP(transmissive_tex_id);
+#undef REMAP
+        }
 
+        for (auto& tex : condensed_textures) {
+            if (tex.checker_indices[0] >= 0)
+                tex.checker_indices[0] = index_map[tex.checker_indices[0]];
+            if (tex.checker_indices[1] >= 0)
+                tex.checker_indices[1] = index_map[tex.checker_indices[1]];
+        }
+
+        std::swap(condensed_textures, texture_descriptors_);
     }
 
     return true;

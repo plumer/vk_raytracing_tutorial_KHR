@@ -34,6 +34,7 @@
 // #VKRay
 #include "camera.h"
 #include "vk_raytrace.h"
+#include "pbrt_scene.h"
 #include <obj_loader.h>
 
 //--------------------------------------------------------------------------------------------------
@@ -98,8 +99,9 @@ class HelloVulkan : public vkpbr::AppBase
     };
     ObjPushConstant m_pushConstant;
 
-    // Array of objects and instances in the scene
+    // Array of objects in the scene
     std::vector<ObjModel>    m_objModel;
+    // Array of instances to objects in the scene. See also m_sceneDesc, RtDsb::kScene.
     std::vector<ObjInstance> m_objInstance;
 
     // Graphic pipeline
@@ -142,19 +144,23 @@ class HelloVulkan : public vkpbr::AppBase
     // #VKRay
     void                                   initRayTracing();
     vkpbr::RaytracingBuilderKHR::BlasInput objectToVkGeometryKHR(const ObjModel& model);
-    void                                   createBottomLevelAS();
-    void                                   createTopLevelAS();
-    void                                   createRtDescriptorSet();
-    void                                   updateRtDescriptorSet();
-    void                                   createRtPipeline();
-    void                                   createRtShaderBindingTable();
+
+    // Converts all triangle mesh data (in buffers) in m_objModel to a bottom-level accel struct.
+    void createBottomLevelAS();
+    void createTopLevelAS();
+    void createRtDescriptorSet();
+    void updateRtDescriptorSet();
+    void createRtPipeline();
+    void createRtShaderBindingTable();
     void raytrace(const vk::CommandBuffer& cmdBuf, const glm::vec4& clearColor);
 
     enum RtStages { kRaygen, kMiss, kShadowMiss, kCHit, kNumStages };
     // Descriptor-set-binding indices. 
-    enum RtDsb { kTlas, kOldMtls, kScene, kTextures, kMtlIndices, kVertices, kIndices, kMaterials };
+    enum RtDsb { kTlas, kPbrtMaterials, kScene, kTextures, kMtlIndices, kVertices, kIndices, kMaterials };
     vkpbr::UniqueBuffer materials_buffer_;
+    vkpbr::UniqueBuffer pbrt_materials_buffer_;
 
+    std::vector<vkpbr::Material> pbrt_materials_;
     std::vector<MaterialObj> universal_materials_;
 
     vk::PhysicalDeviceRayTracingPipelinePropertiesKHR m_rtProperties;

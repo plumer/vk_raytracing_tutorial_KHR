@@ -27,6 +27,8 @@ layout(location = 4) in vec3 worldPos;
 layout(location = 0) out vec4 outColor;
 
 // Buffers
+
+layout(binding = 1, set = 0, scalar) buffer PbrtMaterialArray {PbrtMaterial mtls[];} p_mtls;
 layout(binding = 2, scalar) buffer ScnDesc { InstanceInfo i[]; } scnDesc;
 layout(binding = 3) uniform sampler2D[] textureSamplers;
 layout(binding = 7, scalar) buffer UniversalMaterials {WaveFrontMaterial mtls[];} u_mtls;

@@ -82,7 +82,7 @@ void renderUI(HelloVulkan& helloVk)
 //////////////////////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////////
 static int const SAMPLE_WIDTH  = 1280;
-static int const SAMPLE_HEIGHT = 720;
+static int const SAMPLE_HEIGHT = 960;
 
 //--------------------------------------------------------------------------------------------------
 // Application Entry
@@ -189,7 +189,7 @@ int main(int argc, char** argv)
 
     //helloVk.PrepareScene();
     helloVk.PrepareCornellBox();
-    //constexpr char* kPbrtPath = "C:/Users/zixun/source/pbrt-v3-scenes";
+    constexpr char* kPbrtPath = "C:/Users/zixun/source/pbrt-v3-scenes";
     //helloVk.PreparePbrtScene(io::FindFile("bathroom/bathroom.pbrt", {kPbrtPath}));
 
     helloVk.createOffscreenRender();

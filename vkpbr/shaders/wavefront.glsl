@@ -46,6 +46,7 @@ struct PbrtMaterial {
     float roughness_sigma;
     float u_roughness;
     float v_roughtness;
+    int dummy;
 };
 
 vec3 computeDiffuse(WaveFrontMaterial mat, vec3 lightDir, vec3 normal)
