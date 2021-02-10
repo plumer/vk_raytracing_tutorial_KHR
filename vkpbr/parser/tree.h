@@ -4,6 +4,9 @@
 #include <string>
 #include <cassert>
 #include <memory>
+#if ((defined(_MSVC_LANG) && _MSVC_LANG >= 201703L) || __cplusplus >= 201703L)
+#include <optional>
+#endif
 
 static inline std::string strip_quotes(const std::string & in) {
     std::string out;

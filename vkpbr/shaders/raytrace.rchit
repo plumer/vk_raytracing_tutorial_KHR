@@ -24,7 +24,7 @@ layout(binding = 1, set = 1, scalar) buffer PbrtMaterialArray {PbrtMaterial mtls
 // Stores information for all object instances (ID, transform, etc) in the scene.
 // Can be indexed by gl_InstanceID.
 layout(binding = 2, set = 1, scalar) buffer ScnDesc { InstanceInfo instances[]; } scene;
- 
+   
 layout(binding = 3, set = 1) uniform sampler2D textureSamplers[];
 
 // Stores vertex data for the object mesh, for all objects.
@@ -119,6 +119,8 @@ void main()
     vec3 tangent, bitangent;
     createCoordinateSystem(normal, /*out*/ tangent, /*out*/ bitangent);
     vec3 wi_world = samplingHemisphere(/*inout*/ payload_in.seed, tangent, bitangent, normal);
+
+    if (dot(wi_world, normal) < 0) wi_world = -wi_world;
 
     const float lambertian_pdf = 1.0 / 3.1415926;
     float       cos_theta      = dot(wi_world, normal);

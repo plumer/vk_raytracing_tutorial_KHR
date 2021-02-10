@@ -43,6 +43,10 @@ extern std::vector<std::string> defaultSearchPaths;
 #include <glm/gtx/transform.hpp>
 #include "pbrt_scene.h"
 
+#include <fstream>
+#include "parser/tokenizer.h"
+#include "parser/tree.h"
+
 
 // Holding the camera matrices
 struct CameraMatrices {
@@ -563,10 +567,40 @@ void HelloVulkan::PrepareCornellBox()
 }
 
 void HelloVulkan::PreparePbrtScene(const std::string& pbrt_file_name) {
-    vkpbr::Scene scene;
-    if (!scene.LoadFromFile(pbrt_file_name.c_str())) {
-        LOG(ERROR) << "Loading pbrt scene file from " << pbrt_file_name << " failed";
+
+    std::ifstream file_in(pbrt_file_name);
+    if (!file_in) {
+        LOG(ERROR) << "Cannot open file" << pbrt_file_name;
         return;
+    }
+    pbr::Tokenizer tokenizer(&file_in);
+    tokenizer.set_directory(pbrt_file_name);
+
+    scene_t      scene_root;
+    pbr::Parser  parser(tokenizer, &scene_root);
+    int          parse_error_code = parser.parse();
+
+    vkpbr::Scene scene;
+    if (parse_error_code != 0) {
+        LOG(ERROR) << "Cannot parse the input file";
+        return;
+    } else if (!scene.LoadFromAst(&scene_root, tokenizer.file_root_path())) {
+        LOG(ERROR) << "AST interpretation failed";
+        return;
+    }
+
+    for (const auto& scene_option : scene_root.swoptions) {
+        if (scene_option.directive == swoption_t::directive_t::Transform) {
+            auto transform_node = scene_option.trans;
+            if (transform_node->t == transform_node_t::type::LookAt) {
+                const auto& n = transform_node->numbers;
+                CHECK_EQ(n.size(), 9);
+                glm::vec3 eye  = {n[0], n[1], n[2]};
+                glm::vec3 look = {n[3], n[4], n[5]};
+                glm::vec3 up   = {n[6], n[7], n[8]};
+                camera_->SetLookAt(eye, look, up);
+            }
+        }
     }
 
     vkpbr::CommandPool cmd_pool(m_device, m_graphicsQueueIndex);
@@ -628,6 +662,11 @@ void HelloVulkan::PreparePbrtScene(const std::string& pbrt_file_name) {
     pbrt_materials_ = scene.material_descriptors_;
     pbrt_materials_buffer_ =
         allocator_.MakeBuffer(cmd_buffer, pbrt_materials_, vkBU::eStorageBuffer);
+
+    createTextureImages(cmd_buffer, {});
+
+    cmd_pool.SubmitAndWait(cmd_buffer);
+    allocator_.ReleaseAllStagingBuffers();
 
     // For inserting debugging breakpoints.
     return;
